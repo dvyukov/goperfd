@@ -2,19 +2,38 @@ package config
 
 import (
 	"encoding/json"
-	"os"
 	"io/ioutil"
+	"os"
 )
 
-type MachineConfig struct {
+type HostConfig struct {
 	Addr string
 }
 
 type ProjectConfig struct {
-	Name string
+	Name       string
+	Benchmarks []Benchmark
+	Machines   []Machine
+	Metrics    []Metric
 }
 
-var Machine MachineConfig
+type Benchmark struct {
+	Name string
+	Desc string
+}
+
+type Machine struct {
+	Name string
+	Desc string
+	Key  string
+}
+
+type Metric struct {
+	Name string
+	Desc string
+}
+
+var Host HostConfig
 var Project ProjectConfig
 
 func Load(cfg interface{}, filename string) error {
