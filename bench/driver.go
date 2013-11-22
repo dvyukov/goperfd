@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"runtime"
 	"runtime/pprof"
 	"sort"
@@ -86,8 +87,32 @@ func PerfBenchmark(f BenchFunc) {
 	for k, v := range res.Metrics {
 		PrintMetric(k, v)
 	}
-	fmt.Printf("GOPERF-FILE:cpuprof=%v\n", res.CpuProf)
-	fmt.Printf("GOPERF-FILE:memprof=%v\n", res.MemProf1)
+
+	cpuprof, err := os.Create(tempFilename("cpuprof.txt"))
+	if err != nil {
+		log.Fatalf("Failed to create profile file: %v", err)
+	}
+	defer cpuprof.Close()
+	cmd := exec.Command("go", "tool", "pprof", "--text", "--lines", os.Args[0], res.CpuProf)
+	cmd.Stdout = cpuprof
+	err = cmd.Run()
+	if err != nil {
+		log.Fatalf("Failed to execute go tool pprof: %v", err)
+	}
+	fmt.Printf("GOPERF-FILE:cpuprof=%v\n", cpuprof.Name())
+
+	memprof, err := os.Create(tempFilename("memprof.txt"))
+	if err != nil {
+		log.Fatalf("Failed to create profile file: %v", err)
+	}
+	defer memprof.Close()
+	cmd = exec.Command("go", "tool", "pprof", "--text", "--lines", "--show_bytes", "--alloc_space", "--base", res.MemProf0, os.Args[0], res.MemProf1)
+	cmd.Stdout = memprof
+	err = cmd.Run()
+	if err != nil {
+		log.Fatalf("Failed to execute go tool pprof: %v", err)
+	}
+	fmt.Printf("GOPERF-FILE:memprof=%v\n", memprof.Name())
 }
 
 func PrintMetric(name string, val uint64) {
