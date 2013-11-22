@@ -9,7 +9,7 @@ import (
 )
 
 func init() {
-	RegisterBenchmark("build", BenchmarkBuild)
+	//RegisterBenchmark("build", BenchmarkBuild)
 }
 
 type Result struct {
