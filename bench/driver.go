@@ -1,5 +1,3 @@
-// 8
-
 package main
 
 import (
@@ -8,6 +6,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strings"
 	"syscall"
@@ -19,6 +18,7 @@ var (
 	benchNum  = flag.Int("benchnum", 3, "run each benchmark that many times")
 	benchTime = flag.Duration("benchtime", 10*time.Second, "benchmarking time for a single run")
 	benchMem  = flag.Int("benchmem", 64, "approx RSS value to aim at in benchmarks, in MB")
+	tmpDir    = flag.String("tmpdir", os.TempDir(), "dir for temporary files")
 )
 
 var benchmarks = make(map[string]func())
@@ -61,14 +61,14 @@ type PerfResult struct {
 	Duration time.Duration
 	RunTime  uint64
 	Metrics  map[string]uint64
+	CpuProf  string
+	MemProf0 string
+	MemProf1 string
 }
 
 type BenchFunc func(N uint64) (map[string]uint64, error)
 
 func PerfBenchmark(f BenchFunc) {
-	if !flag.Parsed() {
-		flag.Parse()
-	}
 	res := PerfResult{Metrics: make(map[string]uint64)}
 	for i := 0; i < *benchNum; i++ {
 		res1 := RunBenchmark(f)
@@ -86,6 +86,8 @@ func PerfBenchmark(f BenchFunc) {
 	for k, v := range res.Metrics {
 		PrintMetric(k, v)
 	}
+	fmt.Printf("GOPERF-FILE:cpuprof=%v\n", res.CpuProf)
+	fmt.Printf("GOPERF-FILE:memprof=%v\n", res.MemProf1)
 }
 
 func PrintMetric(name string, val uint64) {
@@ -118,32 +120,55 @@ func RunOnce(f BenchFunc, N uint64) PerfResult {
 	usage0 := new(syscall.Rusage)
 	err := syscall.Getrusage(0, usage0)
 	if err != nil {
-		log.Fatalf("Getrusage failed: %v\n", err)
+		log.Fatalf("Getrusage failed: %v", err)
 	}
 	res := PerfResult{N: N, Metrics: make(map[string]uint64)}
+	res.MemProf0 = tempFilename("memprof")
+	memprof0, err := os.Create(res.MemProf0)
+	if err != nil {
+		log.Fatalf("Failed to create profile file '%v': %v", res.MemProf0, err)
+	}
+	pprof.WriteHeapProfile(memprof0)
+	memprof0.Close()
 
+	res.CpuProf = tempFilename("cpuprof")
+	cpuprof, err := os.Create(res.CpuProf)
+	if err != nil {
+		log.Fatalf("Failed to create profile file '%v': %v", res.CpuProf, err)
+	}
+	defer cpuprof.Close()
+	pprof.StartCPUProfile(cpuprof)
 	t0 := time.Now()
 	metrics, err := f(N)
 	if err != nil {
-		log.Fatalf("Benchmark function failed: %v\n", err)
+		log.Fatalf("Benchmark function failed: %v", err)
 	}
 	res.Duration = time.Since(t0)
 	res.RunTime = uint64(time.Since(t0)) / N
 	res.Metrics["runtime"] = res.RunTime
+	pprof.StopCPUProfile()
+
+	res.MemProf1 = tempFilename("memprof")
+	memprof1, err := os.Create(res.MemProf1)
+	if err != nil {
+		log.Fatalf("Failed to create profile file '%v': %v", res.MemProf1, err)
+	}
+	pprof.WriteHeapProfile(memprof1)
+	memprof1.Close()
 
 	// RSS
 	usage1 := new(syscall.Rusage)
 	err = syscall.Getrusage(0, usage1)
 	if err != nil {
-		log.Fatalf("Getrusage failed: %v\n", err)
+		log.Fatalf("Getrusage failed: %v", err)
 	}
 	res.Metrics["rss"] = MaxRss(usage1)
 	res.Metrics["cputime"] = (CpuTime(usage1) - CpuTime(usage0)) / N
 
 	mstats1 := new(runtime.MemStats)
 	runtime.ReadMemStats(mstats1)
-	res.Metrics["allocated"] = (mstats1.TotalAlloc - mstats0.TotalAlloc)/N
-	res.Metrics["allocs"] = (mstats1.Mallocs - mstats0.Mallocs)/N
+	res.Metrics["allocated"] = (mstats1.TotalAlloc - mstats0.TotalAlloc) / N
+	res.Metrics["allocs"] = (mstats1.Mallocs - mstats0.Mallocs) / N
 	res.Metrics["sys-total"] = mstats1.Sys
 	res.Metrics["sys-heap"] = mstats1.HeapSys
 	res.Metrics["sys-stack"] = mstats1.StackSys
@@ -212,4 +237,11 @@ func max(a, b uint64) uint64 {
 		return a
 	}
 	return b
+}
+
+var tmpSeq = 0
+
+func tempFilename(ext string) string {
+	tmpSeq++
+	return fmt.Sprintf("%v/%v.%v", *tmpDir, tmpSeq, ext)
 }
