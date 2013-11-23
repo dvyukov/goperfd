@@ -16,15 +16,16 @@ import (
 
 var (
 	bench     = flag.String("bench", "", "benchmark to run")
+	flake     = flag.Int("flake", 0, "test flakiness of a benchmark")
 	benchNum  = flag.Int("benchnum", 3, "run each benchmark that many times")
 	benchTime = flag.Duration("benchtime", 10*time.Second, "benchmarking time for a single run")
 	benchMem  = flag.Int("benchmem", 64, "approx RSS value to aim at in benchmarks, in MB")
 	tmpDir    = flag.String("tmpdir", os.TempDir(), "dir for temporary files")
 )
 
-var benchmarks = make(map[string]func())
+var benchmarks = make(map[string]func() PerfResult)
 
-func RegisterBenchmark(name string, f func()) {
+func RegisterBenchmark(name string, f func() PerfResult) {
 	benchmarks[name] = f
 }
 
@@ -39,7 +40,29 @@ func main() {
 		fmt.Printf("unknown benchmark '%v'\n", *bench)
 		os.Exit(1)
 	}
-	f()
+	if *flake > 0 {
+		res := make([]PerfResult, *flake + 2)
+		for i := range res {
+			res[i] = f()
+		}
+		fmt.Printf("\n")
+		for k, v := range res[1].Metrics {
+			fmt.Printf("%v:\t", k)
+			for i := 2; i < len(res); i++ {
+				d := 100*float64(v)/float64(res[i].Metrics[k])-100
+				fmt.Printf(" %+.2f%%", d)
+			}
+			fmt.Printf("\n")
+		}
+		return
+	}
+	res := f()
+	for k, v := range res.Metrics {
+		fmt.Printf("GOPERF-METRIC:%v=%v\n", k, v)
+	}
+	for k, v := range res.Files {
+		fmt.Printf("GOPERF-FILE:%v=%v\n", k, v)
+	}
 }
 
 func PrintBenchmarks() {
@@ -62,15 +85,17 @@ type PerfResult struct {
 	Duration time.Duration
 	RunTime  uint64
 	Metrics  map[string]uint64
-	CpuProf  string
-	MemProf0 string
-	MemProf1 string
+	Files    map[string]string
+}
+
+func MakePerfResult() PerfResult {
+	return PerfResult{Metrics: make(map[string]uint64), Files: make(map[string]string)}
 }
 
 type BenchFunc func(N uint64) (map[string]uint64, error)
 
-func PerfBenchmark(f BenchFunc) {
-	res := PerfResult{Metrics: make(map[string]uint64)}
+func PerfBenchmark(f BenchFunc) PerfResult {
+	res := MakePerfResult()
 	for i := 0; i < *benchNum; i++ {
 		res1 := RunBenchmark(f)
 		if res.N == 0 || res.RunTime > res1.RunTime {
@@ -84,39 +109,38 @@ func PerfBenchmark(f BenchFunc) {
 			res = res1
 		}
 	}
-	for k, v := range res.Metrics {
-		PrintMetric(k, v)
-	}
 
 	cpuprof, err := os.Create(tempFilename("cpuprof.txt"))
 	if err != nil {
 		log.Fatalf("Failed to create profile file: %v", err)
 	}
 	defer cpuprof.Close()
-	cmd := exec.Command("go", "tool", "pprof", "--text", "--lines", os.Args[0], res.CpuProf)
+	cmd := exec.Command("go", "tool", "pprof", "--text", "--lines", os.Args[0], res.Files["cpuprof"])
 	cmd.Stdout = cpuprof
 	err = cmd.Run()
 	if err != nil {
 		log.Fatalf("Failed to execute go tool pprof: %v", err)
 	}
-	fmt.Printf("GOPERF-FILE:cpuprof=%v\n", cpuprof.Name())
+	res.Files["cpuprof"] = cpuprof.Name()
 
 	memprof, err := os.Create(tempFilename("memprof.txt"))
 	if err != nil {
 		log.Fatalf("Failed to create profile file: %v", err)
 	}
 	defer memprof.Close()
-	cmd = exec.Command("go", "tool", "pprof", "--text", "--lines", "--show_bytes", "--alloc_space", "--base", res.MemProf0, os.Args[0], res.MemProf1)
+	cmd = exec.Command("go", "tool", "pprof", "--text", "--lines", "--show_bytes",
+		"--alloc_space", "--base", res.Files["memprof0"], os.Args[0], res.Files["memprof"])
 	cmd.Stdout = memprof
 	err = cmd.Run()
 	if err != nil {
 		log.Fatalf("Failed to execute go tool pprof: %v", err)
 	}
-	fmt.Printf("GOPERF-FILE:memprof=%v\n", memprof.Name())
+	res.Files["memprof"] = memprof.Name()
+	delete(res.Files, "memprof0")
+	return res
 }
 
 func PrintMetric(name string, val uint64) {
-	fmt.Printf("GOPERF-METRIC:%v=%v\n", name, val)
 }
 
 func CpuTime(usage *syscall.Rusage) uint64 {
@@ -129,7 +153,7 @@ func MaxRss(usage *syscall.Rusage) uint64 {
 }
 
 func RunBenchmark(f BenchFunc) PerfResult {
-	res := PerfResult{Metrics: make(map[string]uint64)}
+	res := MakePerfResult()
 	for ChooseN(&res) {
 		log.Printf("Benchmarking %v iterations\n", res.N)
 		res = RunOnce(f, res.N)
@@ -147,19 +171,20 @@ func RunOnce(f BenchFunc, N uint64) PerfResult {
 	if err != nil {
 		log.Fatalf("Getrusage failed: %v", err)
 	}
-	res := PerfResult{N: N, Metrics: make(map[string]uint64)}
-	res.MemProf0 = tempFilename("memprof")
-	memprof0, err := os.Create(res.MemProf0)
+	res := MakePerfResult()
+	res.N = N
+	res.Files["memprof0"] = tempFilename("memprof")
+	memprof0, err := os.Create(res.Files["memprof0"])
 	if err != nil {
-		log.Fatalf("Failed to create profile file '%v': %v", res.MemProf0, err)
+		log.Fatalf("Failed to create profile file '%v': %v", res.Files["memprof0"], err)
 	}
 	pprof.WriteHeapProfile(memprof0)
 	memprof0.Close()
 
-	res.CpuProf = tempFilename("cpuprof")
-	cpuprof, err := os.Create(res.CpuProf)
+	res.Files["cpuprof"] = tempFilename("cpuprof")
+	cpuprof, err := os.Create(res.Files["cpuprof"])
 	if err != nil {
-		log.Fatalf("Failed to create profile file '%v': %v", res.CpuProf, err)
+		log.Fatalf("Failed to create profile file '%v': %v", res.Files["cpuprof"], err)
 	}
 	defer cpuprof.Close()
 	pprof.StartCPUProfile(cpuprof)
@@ -173,13 +198,13 @@ func RunOnce(f BenchFunc, N uint64) PerfResult {
 	res.Metrics["runtime"] = res.RunTime
 	pprof.StopCPUProfile()
 
-	res.MemProf1 = tempFilename("memprof")
-	memprof1, err := os.Create(res.MemProf1)
+	res.Files["memprof"] = tempFilename("memprof")
+	memprof, err := os.Create(res.Files["memprof"])
 	if err != nil {
-		log.Fatalf("Failed to create profile file '%v': %v", res.MemProf1, err)
+		log.Fatalf("Failed to create profile file '%v': %v", res.Files["memprof"], err)
 	}
-	pprof.WriteHeapProfile(memprof1)
-	memprof1.Close()
+	pprof.WriteHeapProfile(memprof)
+	memprof.Close()
 
 	// RSS
 	usage1 := new(syscall.Rusage)

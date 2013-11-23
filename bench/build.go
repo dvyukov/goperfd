@@ -9,35 +9,25 @@ import (
 )
 
 func init() {
-	//RegisterBenchmark("build", BenchmarkBuild)
+	RegisterBenchmark("build", BenchmarkBuild)
 }
 
-type Result struct {
-	runTime    uint64
-	cpuTime    uint64
-	binarySize uint64
-	RSS        uint64
-}
-
-func BenchmarkBuild() {
+func BenchmarkBuild() PerfResult {
 	if os.Getenv("GOMAXPROCS") == "" {
 		os.Setenv("GOMAXPROCS", "1")
 	}
-	var res Result
+	res := MakePerfResult()
 	for i := 0; i < *benchNum; i++ {
 		res1 := BenchmarkOnce()
-		if res.runTime == 0 || res.runTime > res1.runTime {
+		if res.RunTime == 0 || res.RunTime > res1.RunTime {
 			res = res1
 		}
 		log.Printf("Run %v: %+v\n", i, res)
 	}
-	PrintMetric("runtime", res.runTime)
-	PrintMetric("cputime", res.cpuTime)
-	PrintMetric("binary-size", res.binarySize)
-	PrintMetric("rss", res.RSS)
+	return res
 }
 
-func BenchmarkOnce() (res Result) {
+func BenchmarkOnce() PerfResult {
 	// run 'go build -a'
 	t0 := time.Now()
 	cmd := exec.Command("go", "build", "-a", "-v", "-p", os.Getenv("GOMAXPROCS"), "std")
@@ -45,12 +35,14 @@ func BenchmarkOnce() (res Result) {
 	if err != nil {
 		log.Fatalf("Failed to run 'go build -a -v std': %v\n%v", err, string(out))
 	}
-	res.runTime = uint64(time.Since(t0))
+	res := MakePerfResult()
+	res.RunTime = uint64(time.Since(t0))
+	res.Metrics["runtime"] = res.RunTime
 
 	// RSS of 'go build -a'
 	usage := cmd.ProcessState.SysUsage().(*syscall.Rusage)
-	res.RSS = MaxRss(usage)
-	res.cpuTime = CpuTime(usage)
+	res.Metrics["rss"] = MaxRss(usage)
+	res.Metrics["cputime"] = CpuTime(usage)
 
 	// go command binary size
 	gof, err := os.Open(os.Getenv("GOROOT") + "/bin/go")
@@ -61,6 +53,6 @@ func BenchmarkOnce() (res Result) {
 	if err != nil {
 		log.Fatalf("Failed to stat $GOROOT/bin/go: %v\n", err)
 	}
-	res.binarySize = uint64(st.Size())
-	return
+	res.Metrics["binary-size"] = uint64(st.Size())
+	return res
 }

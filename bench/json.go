@@ -16,8 +16,8 @@ func init() {
 	RegisterBenchmark("json", BenchmarkJson)
 }
 
-func BenchmarkJson() {
-	PerfBenchmark(benchmarkJson)
+func BenchmarkJson() PerfResult {
+	return PerfBenchmark(benchmarkJson)
 }
 
 func benchmarkJson(N uint64) (metrics map[string]uint64, err error) {

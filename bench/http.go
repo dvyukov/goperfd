@@ -15,8 +15,8 @@ func init() {
 	RegisterBenchmark("http", BenchmarkHttp)
 }
 
-func BenchmarkHttp() {
-	PerfBenchmark(benchmarkHttp)
+func BenchmarkHttp() PerfResult {
+	return PerfBenchmark(benchmarkHttp)
 }
 
 var ts = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
