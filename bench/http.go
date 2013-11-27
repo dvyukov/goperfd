@@ -1,14 +1,16 @@
+// Copyright 2013 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package main
 
 import (
+	"time"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"runtime"
-	"sync"
-	"sync/atomic"
 )
 
 func init() {
@@ -23,31 +25,23 @@ var ts = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *htt
 	fmt.Fprintf(rw, "Hello world.\n")
 }))
 
-func benchmarkHttp(N uint64) (metrics map[string]uint64, err error) {
-	numProcs := 4 * runtime.GOMAXPROCS(0)
-	var wg sync.WaitGroup
-	wg.Add(numProcs)
-	for p := 0; p < numProcs; p++ {
-		go func() {
-			for int64(atomic.AddUint64(&N, ^uint64(0))) >= 0 {
-				res, err := http.Get(ts.URL)
-				if err != nil {
-					log.Printf("Get: %v", err)
-					continue
-				}
-				all, err := ioutil.ReadAll(res.Body)
-				if err != nil {
-					log.Printf("ReadAll: %v", err)
-					continue
-				}
-				body := string(all)
-				if body != "Hello world.\n" {
-					log.Fatalf("Got body: " + body)
-				}
-			}
-			wg.Done()
-		}()
-	}
-	wg.Wait()
-	return
+func benchmarkHttp(N uint64) {
+	PerfParallel(N, 4, func() {
+		t0 := time.Now()
+		res, err := http.Get(ts.URL)
+		if err != nil {
+			log.Printf("Get: %v", err)
+			return
+		}
+		all, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			log.Printf("ReadAll: %v", err)
+			return
+		}
+		body := string(all)
+		if body != "Hello world.\n" {
+			log.Fatalf("Got body: " + body)
+		}
+		PerfLatencyNote(t0)
+	})
 }

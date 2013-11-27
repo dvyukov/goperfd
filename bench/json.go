@@ -1,3 +1,7 @@
+// Copyright 2013 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package main
 
 import (
@@ -7,9 +11,6 @@ import (
 	"encoding/json"
 	"io"
 	"io/ioutil"
-	"runtime"
-	"sync"
-	"sync/atomic"
 )
 
 func init() {
@@ -20,28 +21,17 @@ func BenchmarkJson() PerfResult {
 	return PerfBenchmark(benchmarkJson)
 }
 
-func benchmarkJson(N uint64) (metrics map[string]uint64, err error) {
-	numProcs := runtime.GOMAXPROCS(0)
-	var wg sync.WaitGroup
-	wg.Add(numProcs)
-	for p := 0; p < numProcs; p++ {
-		go func() {
-			for int64(atomic.AddUint64(&N, ^uint64(0))) >= 0 {
-				var r JSONResponse
-				if err := json.Unmarshal(jsonbytes, &r); err != nil {
-					panic(err)
-				}
-				_, err := json.Marshal(&jsondata)
-				if err != nil {
-					panic(err)
-				}
-
-			}
-			wg.Done()
-		}()
-	}
-	wg.Wait()
-	return
+func benchmarkJson(N uint64) {
+	PerfParallel(N, 4, func() {
+		var r JSONResponse
+		if err := json.Unmarshal(jsonbytes, &r); err != nil {
+			panic(err)
+		}
+		_, err := json.Marshal(&jsondata)
+		if err != nil {
+			panic(err)
+		}
+	})
 }
 
 var (

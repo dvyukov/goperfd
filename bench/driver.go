@@ -1,4 +1,10 @@
+// Copyright 2013 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package main
+
+// TODO(dvyukov): collect latency
 
 import (
 	"flag"
@@ -10,6 +16,8 @@ import (
 	"runtime/pprof"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -41,7 +49,7 @@ func main() {
 		os.Exit(1)
 	}
 	if *flake > 0 {
-		res := make([]PerfResult, *flake + 2)
+		res := make([]PerfResult, *flake+2)
 		for i := range res {
 			res[i] = f()
 		}
@@ -49,7 +57,7 @@ func main() {
 		for k, v := range res[1].Metrics {
 			fmt.Printf("%v:\t", k)
 			for i := 2; i < len(res); i++ {
-				d := 100*float64(v)/float64(res[i].Metrics[k])-100
+				d := 100*float64(v)/float64(res[i].Metrics[k]) - 100
 				fmt.Printf(" %+.2f%%", d)
 			}
 			fmt.Printf("\n")
@@ -92,7 +100,24 @@ func MakePerfResult() PerfResult {
 	return PerfResult{Metrics: make(map[string]uint64), Files: make(map[string]string)}
 }
 
-type BenchFunc func(N uint64) (map[string]uint64, error)
+// PerfParallel is a helper function that runs f
+// N times in P*GOMAXPROCS goroutines.
+func PerfParallel(N uint64, P int, f func()) {
+	numProcs := P * runtime.GOMAXPROCS(0)
+	var wg sync.WaitGroup
+	wg.Add(numProcs)
+	for p := 0; p < numProcs; p++ {
+		go func() {
+			for int64(atomic.AddUint64(&N, ^uint64(0))) >= 0 {
+				f()
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+}
+
+type BenchFunc func(N uint64)
 
 func PerfBenchmark(f BenchFunc) PerfResult {
 	res := MakePerfResult()
@@ -163,6 +188,7 @@ func RunBenchmark(f BenchFunc) PerfResult {
 }
 
 func RunOnce(f BenchFunc, N uint64) PerfResult {
+	PerfLatencyInit(N)
 	runtime.GC()
 	mstats0 := new(runtime.MemStats)
 	runtime.ReadMemStats(mstats0)
@@ -189,14 +215,13 @@ func RunOnce(f BenchFunc, N uint64) PerfResult {
 	defer cpuprof.Close()
 	pprof.StartCPUProfile(cpuprof)
 	t0 := time.Now()
-	metrics, err := f(N)
-	if err != nil {
-		log.Fatalf("Benchmark function failed: %v", err)
-	}
+	f(N)
 	res.Duration = time.Since(t0)
 	res.RunTime = uint64(time.Since(t0)) / N
 	res.Metrics["runtime"] = res.RunTime
 	pprof.StopCPUProfile()
+
+	PerfLatencyCollect(&res)
 
 	res.Files["memprof"] = tempFilename("memprof")
 	memprof, err := os.Create(res.Files["memprof"])
@@ -231,11 +256,42 @@ func RunOnce(f BenchFunc, N uint64) PerfResult {
 	} else {
 		res.Metrics["gc-pause-one"] = (mstats1.PauseTotalNs - mstats0.PauseTotalNs) / numGC
 	}
-
-	for k, v := range metrics {
-		res.Metrics[k] = v
-	}
 	return res
+}
+
+var perfLatency struct {
+	data PerfLatencyData
+	idx  int32
+}
+
+type PerfLatencyData []uint64
+func (p PerfLatencyData) Len() int { return len(p) }
+func (p PerfLatencyData) Less(i, j int) bool { return p[i] < p[j] }
+func (p PerfLatencyData) Swap(i, j int) { p[i], p[j] = p[j], p[i] }
+
+func PerfLatencyInit(N uint64) {
+	perfLatency.data = make(PerfLatencyData, N)
+	perfLatency.idx = 0
+}
+
+func PerfLatencyNote(t time.Time) {
+	d := time.Since(t)
+	i := atomic.AddInt32(&perfLatency.idx, 1) - 1
+	if int(i) >= len(perfLatency.data) {
+		return
+	}
+	perfLatency.data[i] = uint64(d)
+}
+
+func PerfLatencyCollect(res *PerfResult) {
+	cnt := perfLatency.idx
+	if cnt == 0 {
+		return
+	}
+	sort.Sort(perfLatency.data[:cnt])
+	res.Metrics["latency-50"] = perfLatency.data[cnt * 50 / 100]
+	res.Metrics["latency-95"] = perfLatency.data[cnt * 95 / 100]
+	res.Metrics["latency-99"] = perfLatency.data[cnt * 99 / 100]
 }
 
 func ChooseN(res *PerfResult) bool {
