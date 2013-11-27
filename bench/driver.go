@@ -4,8 +4,6 @@
 
 package main
 
-// TODO(dvyukov): collect latency
-
 import (
 	"flag"
 	"fmt"
@@ -247,9 +245,8 @@ func RunOnce(f BenchFunc, N uint64) PerfResult {
 	res.Metrics["sys-total"] = mstats1.Sys
 	res.Metrics["sys-heap"] = mstats1.HeapSys
 	res.Metrics["sys-stack"] = mstats1.StackSys
-	res.Metrics["sys-gc"] = mstats1.GCSys
-	res.Metrics["sys-other"] = mstats1.OtherSys + mstats1.MSpanSys + mstats1.MCacheSys + mstats1.BuckHashSys
 	res.Metrics["gc-pause-total"] = (mstats1.PauseTotalNs - mstats0.PauseTotalNs) / N
+	PerfCollectGo12MemStats(&res, mstats0, mstats1)
 	numGC := uint64(mstats1.NumGC - mstats0.NumGC)
 	if numGC == 0 {
 		res.Metrics["gc-pause-one"] = 0
