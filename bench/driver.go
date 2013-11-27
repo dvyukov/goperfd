@@ -138,7 +138,7 @@ func PerfBenchmark(f BenchFunc) PerfResult {
 		log.Fatalf("Failed to create profile file: %v", err)
 	}
 	defer cpuprof.Close()
-	cmd := exec.Command("go", "tool", "pprof", "--text", "--lines", os.Args[0], res.Files["cpuprof"])
+	cmd := exec.Command("go", "tool", "pprof", "--text", os.Args[0], res.Files["cpuprof"])
 	cmd.Stdout = cpuprof
 	err = cmd.Run()
 	if err != nil {
@@ -262,9 +262,10 @@ var perfLatency struct {
 }
 
 type PerfLatencyData []uint64
-func (p PerfLatencyData) Len() int { return len(p) }
+
+func (p PerfLatencyData) Len() int           { return len(p) }
 func (p PerfLatencyData) Less(i, j int) bool { return p[i] < p[j] }
-func (p PerfLatencyData) Swap(i, j int) { p[i], p[j] = p[j], p[i] }
+func (p PerfLatencyData) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 func PerfLatencyInit(N uint64) {
 	perfLatency.data = make(PerfLatencyData, N)
@@ -286,9 +287,9 @@ func PerfLatencyCollect(res *PerfResult) {
 		return
 	}
 	sort.Sort(perfLatency.data[:cnt])
-	res.Metrics["latency-50"] = perfLatency.data[cnt * 50 / 100]
-	res.Metrics["latency-95"] = perfLatency.data[cnt * 95 / 100]
-	res.Metrics["latency-99"] = perfLatency.data[cnt * 99 / 100]
+	res.Metrics["latency-50"] = perfLatency.data[cnt*50/100]
+	res.Metrics["latency-95"] = perfLatency.data[cnt*95/100]
+	res.Metrics["latency-99"] = perfLatency.data[cnt*99/100]
 }
 
 func ChooseN(res *PerfResult) bool {

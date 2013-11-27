@@ -5,12 +5,12 @@
 package main
 
 import (
-	"time"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"time"
 )
 
 func init() {
