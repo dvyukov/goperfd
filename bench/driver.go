@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"log"
@@ -138,28 +139,38 @@ func PerfBenchmark(f BenchFunc) PerfResult {
 		log.Fatalf("Failed to create profile file: %v", err)
 	}
 	defer cpuprof.Close()
+	var cpuproflog bytes.Buffer
 	cmd := exec.Command("go", "tool", "pprof", "--text", os.Args[0], res.Files["cpuprof"])
 	cmd.Stdout = cpuprof
+	cmd.Stderr = &cpuproflog
 	err = cmd.Run()
+	delete(res.Files, "cpuprof")
 	if err != nil {
-		log.Fatalf("Failed to execute go tool pprof: %v", err)
+		log.Printf("go tool pprof cpuprof failed: %v\n%v", err, cpuproflog.String())
+		// Deliberately ignore the error and continue.
+	} else {
+		res.Files["cpuprof"] = cpuprof.Name()
 	}
-	res.Files["cpuprof"] = cpuprof.Name()
 
 	memprof, err := os.Create(tempFilename("memprof.txt"))
 	if err != nil {
 		log.Fatalf("Failed to create profile file: %v", err)
 	}
 	defer memprof.Close()
+	var memproflog bytes.Buffer
 	cmd = exec.Command("go", "tool", "pprof", "--text", "--lines", "--show_bytes",
 		"--alloc_space", "--base", res.Files["memprof0"], os.Args[0], res.Files["memprof"])
 	cmd.Stdout = memprof
+	cmd.Stderr = &memproflog
 	err = cmd.Run()
-	if err != nil {
-		log.Fatalf("Failed to execute go tool pprof: %v", err)
-	}
-	res.Files["memprof"] = memprof.Name()
+	delete(res.Files, "memprof")
 	delete(res.Files, "memprof0")
+	if err != nil {
+		log.Printf("go tool pprof memprof failed: %v\n%v", err, memproflog.String())
+		// Deliberately ignore the error and continue.
+	} else {
+		res.Files["memprof"] = memprof.Name()
+	}
 	return res
 }
 
