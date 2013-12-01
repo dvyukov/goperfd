@@ -39,7 +39,7 @@ func RegisterBenchmark(name string, f func() PerfResult) {
 func main() {
 	flag.Parse()
 	if *bench == "" {
-		PrintBenchmarks()
+		printBenchmarks()
 		return
 	}
 	f := benchmarks[*bench]
@@ -48,19 +48,7 @@ func main() {
 		os.Exit(1)
 	}
 	if *flake > 0 {
-		res := make([]PerfResult, *flake+2)
-		for i := range res {
-			res[i] = f()
-		}
-		fmt.Printf("\n")
-		for k, v := range res[1].Metrics {
-			fmt.Printf("%v:\t", k)
-			for i := 2; i < len(res); i++ {
-				d := 100*float64(v)/float64(res[i].Metrics[k]) - 100
-				fmt.Printf(" %+.2f%%", d)
-			}
-			fmt.Printf("\n")
-		}
+		testFlakiness(f, *flake)
 		return
 	}
 	res := f()
@@ -72,7 +60,7 @@ func main() {
 	}
 }
 
-func PrintBenchmarks() {
+func printBenchmarks() {
 	var bb []string
 	for name, _ := range benchmarks {
 		bb = append(bb, name)
@@ -87,10 +75,26 @@ func PrintBenchmarks() {
 	fmt.Print("\n")
 }
 
+func testFlakiness(f func() PerfResult, N int) {
+	res := make([]PerfResult, N+2)
+	for i := range res {
+		res[i] = f()
+	}
+	fmt.Printf("\n")
+	for k, v := range res[0].Metrics {
+		fmt.Printf("%v:\t", k)
+		for i := 2; i < len(res); i++ {
+			d := 100*float64(v)/float64(res[i].Metrics[k]) - 100
+			fmt.Printf(" %+.2f%%", d)
+		}
+		fmt.Printf("\n")
+	}
+}
+
 type PerfResult struct {
-	N        uint64
-	Duration time.Duration
-	RunTime  uint64
+	N        uint64        // number of iterations
+	Duration time.Duration // total run duration
+	RunTime  uint64        // ns/op
 	Metrics  map[string]uint64
 	Files    map[string]string
 }
@@ -172,9 +176,6 @@ func PerfBenchmark(f BenchFunc) PerfResult {
 		res.Files["memprof"] = memprof.Name()
 	}
 	return res
-}
-
-func PrintMetric(name string, val uint64) {
 }
 
 func CpuTime(usage *syscall.Rusage) uint64 {
@@ -279,6 +280,7 @@ func (p PerfLatencyData) Less(i, j int) bool { return p[i] < p[j] }
 func (p PerfLatencyData) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 func PerfLatencyInit(N uint64) {
+	N = min(N, 1e6) // bound the amount of memory consumed
 	perfLatency.data = make(PerfLatencyData, N)
 	perfLatency.idx = 0
 }
