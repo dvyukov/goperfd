@@ -28,6 +28,10 @@ func BenchmarkBuild() PerfResult {
 		}
 		log.Printf("Run %v: %+v\n", i, res)
 	}
+	perf := runUnderProfiler("go", "install", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
+	if perf != "" {
+		res.Files["perf"] = perf
+	}
 	return res
 }
 

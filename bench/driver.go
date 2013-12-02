@@ -124,15 +124,15 @@ func PerfBenchmark(f BenchFunc) PerfResult {
 	for i := 0; i < *benchNum; i++ {
 		res1 := runBenchmark(f)
 		if res.N == 0 || res.RunTime > res1.RunTime {
-			if res.N != 0 {
-				for k, v := range res.Metrics {
-					// TODO: comment
-					if k == "rss" || strings.HasPrefix(k, "sys-") {
-						res1.Metrics[k] = v
-					}
-				}
-			}
 			res = res1
+		}
+		// Always take RSS and sys memory metrics from last iteration.
+		// They only grow, and seem to converge to some eigen value.
+		// Variations are smaller if we do this.
+		for k, v := range res1.Metrics {
+			if k == "rss" || strings.HasPrefix(k, "sys-") {
+				res.Metrics[k] = v
+			}
 		}
 	}
 
