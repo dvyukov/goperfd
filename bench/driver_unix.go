@@ -52,4 +52,13 @@ func (ss sysStats) Collect(res *PerfResult) {
 	}
 	res.Metrics["rss"] = uint64(Rusage.Maxrss) * (1 << 10)
 	res.Metrics["cputime"] = (cpuTime(Rusage) - cpuTime(&ss.Rusage)) / ss.N
+
+	pid := 0
+	if ss.Cmd != nil {
+		pid = ss.Cmd.Process.Pid
+	}
+	vm := getVMPeak(pid)
+	if vm != 0 {
+		res.Metrics["vm"] = vm
+	}
 }

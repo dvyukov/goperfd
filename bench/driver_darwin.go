@@ -9,3 +9,7 @@ package main
 func runUnderProfiler(args ...string) string {
 	return ""
 }
+
+func getVMPeak(pid int) uint64 {
+	return 0
+}
