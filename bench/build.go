@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"syscall"
 	"time"
 )
 
@@ -42,11 +41,7 @@ func BenchmarkOnce() PerfResult {
 	res := MakePerfResult()
 	res.RunTime = uint64(time.Since(t0))
 	res.Metrics["runtime"] = res.RunTime
-
-	// RSS of 'go build -a'
-	usage := cmd.ProcessState.SysUsage().(*syscall.Rusage)
-	res.Metrics["rss"] = MaxRss(usage)
-	res.Metrics["cputime"] = CpuTime(usage)
+	PerfCollectProcessStats(&res, cmd)
 
 	// go command binary size
 	gof, err := os.Open(os.Getenv("GOROOT") + "/bin/go")

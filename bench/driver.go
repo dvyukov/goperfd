@@ -17,7 +17,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 )
 
@@ -178,15 +177,6 @@ func PerfBenchmark(f BenchFunc) PerfResult {
 	return res
 }
 
-func CpuTime(usage *syscall.Rusage) uint64 {
-	return uint64(usage.Utime.Sec)*1e9 + uint64(usage.Utime.Usec*1e3) +
-		uint64(usage.Stime.Sec)*1e9 + uint64(usage.Stime.Usec)*1e3
-}
-
-func MaxRss(usage *syscall.Rusage) uint64 {
-	return uint64(usage.Maxrss) * (1 << 10)
-}
-
 func RunBenchmark(f BenchFunc) PerfResult {
 	res := MakePerfResult()
 	for ChooseN(&res) {
@@ -202,11 +192,7 @@ func RunOnce(f BenchFunc, N uint64) PerfResult {
 	runtime.GC()
 	mstats0 := new(runtime.MemStats)
 	runtime.ReadMemStats(mstats0)
-	usage0 := new(syscall.Rusage)
-	err := syscall.Getrusage(0, usage0)
-	if err != nil {
-		log.Fatalf("Getrusage failed: %v", err)
-	}
+	PerfInitSysStats(N)
 	res := MakePerfResult()
 	res.N = N
 	res.Files["memprof0"] = tempFilename("memprof")
@@ -241,15 +227,7 @@ func RunOnce(f BenchFunc, N uint64) PerfResult {
 	pprof.WriteHeapProfile(memprof)
 	memprof.Close()
 
-	// RSS
-	usage1 := new(syscall.Rusage)
-	err = syscall.Getrusage(0, usage1)
-	if err != nil {
-		log.Fatalf("Getrusage failed: %v", err)
-	}
-	res.Metrics["rss"] = MaxRss(usage1)
-	res.Metrics["cputime"] = (CpuTime(usage1) - CpuTime(usage0)) / N
-
+	PerfCollectSysStats(&res)
 	mstats1 := new(runtime.MemStats)
 	runtime.ReadMemStats(mstats1)
 	res.Metrics["allocated"] = (mstats1.TotalAlloc - mstats0.TotalAlloc) / N
