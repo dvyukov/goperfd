@@ -2,6 +2,15 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// This file contains common benchmarking logic shared between benchmarks.
+// It defines the main function which calls one of the benchmarks registered
+// with RegisterBenchmark function.
+// When a benchmark is invoked it has 2 choices:
+// 1. Do whatever it wants, fill and return PerfResult object.
+// 2. Call PerfBenchmark helper function and provide benchmarking function
+// func(N uint64), similar to standard testing benchmarks. The rest is handled
+// by PerfBenchmark.
+
 package main
 
 import (
@@ -23,13 +32,13 @@ import (
 var (
 	bench     = flag.String("bench", "", "benchmark to run")
 	flake     = flag.Int("flake", 0, "test flakiness of a benchmark")
-	benchNum  = flag.Int("benchnum", 3, "run each benchmark that many times")
-	benchTime = flag.Duration("benchtime", 10*time.Second, "benchmarking time for a single run")
+	benchNum  = flag.Int("benchnum", 5, "run each benchmark that many times")
+	benchTime = flag.Duration("benchtime", 5*time.Second, "benchmarking time for a single run")
 	benchMem  = flag.Int("benchmem", 64, "approx RSS value to aim at in benchmarks, in MB")
 	tmpDir    = flag.String("tmpdir", os.TempDir(), "dir for temporary files")
-)
 
-var benchmarks = make(map[string]func() PerfResult)
+	benchmarks = make(map[string]func() PerfResult)
+)
 
 func RegisterBenchmark(name string, f func() PerfResult) {
 	benchmarks[name] = f
@@ -74,6 +83,8 @@ func printBenchmarks() {
 	fmt.Print("\n")
 }
 
+// testFlakiness runs the function N+2 times and prints metrics diffs between
+// the second and subsequent runs.
 func testFlakiness(f func() PerfResult, N int) {
 	res := make([]PerfResult, N+2)
 	for i := range res {
@@ -90,6 +101,7 @@ func testFlakiness(f func() PerfResult, N int) {
 	}
 }
 
+// PerfResult contains all the interesting data about benchmark execution.
 type PerfResult struct {
 	N        uint64        // number of iterations
 	Duration time.Duration // total run duration
@@ -102,32 +114,19 @@ func MakePerfResult() PerfResult {
 	return PerfResult{Metrics: make(map[string]uint64), Files: make(map[string]string)}
 }
 
-// PerfParallel is a helper function that runs f
-// N times in P*GOMAXPROCS goroutines.
-func PerfParallel(N uint64, P int, f func()) {
-	numProcs := P * runtime.GOMAXPROCS(0)
-	var wg sync.WaitGroup
-	wg.Add(numProcs)
-	for p := 0; p < numProcs; p++ {
-		go func() {
-			for int64(atomic.AddUint64(&N, ^uint64(0))) >= 0 {
-				f()
-			}
-			wg.Done()
-		}()
-	}
-	wg.Wait()
-}
-
 type BenchFunc func(N uint64)
 
+// PerfBenchmark is the highest level benchmarking function.
+// It runs f several times, collects stats, chooses the best run
+// and creates cpu/mem profiles.
 func PerfBenchmark(f BenchFunc) PerfResult {
 	res := MakePerfResult()
 	for i := 0; i < *benchNum; i++ {
-		res1 := RunBenchmark(f)
+		res1 := runBenchmark(f)
 		if res.N == 0 || res.RunTime > res1.RunTime {
 			if res.N != 0 {
 				for k, v := range res.Metrics {
+					// TODO: comment
 					if k == "rss" || strings.HasPrefix(k, "sys-") {
 						res1.Metrics[k] = v
 					}
@@ -137,57 +136,60 @@ func PerfBenchmark(f BenchFunc) PerfResult {
 		}
 	}
 
-	cpuprof, err := os.Create(tempFilename("cpuprof.txt"))
-	if err != nil {
-		log.Fatalf("Failed to create profile file: %v", err)
-	}
-	defer cpuprof.Close()
-	var cpuproflog bytes.Buffer
-	cmd := exec.Command("go", "tool", "pprof", "--text", os.Args[0], res.Files["cpuprof"])
-	cmd.Stdout = cpuprof
-	cmd.Stderr = &cpuproflog
-	err = cmd.Run()
+	cpuprof := processProfile(os.Args[0], res.Files["cpuprof"])
 	delete(res.Files, "cpuprof")
-	if err != nil {
-		log.Printf("go tool pprof cpuprof failed: %v\n%v", err, cpuproflog.String())
-		// Deliberately ignore the error and continue.
-	} else {
-		res.Files["cpuprof"] = cpuprof.Name()
+	if cpuprof != "" {
+		res.Files["cpuprof"] = cpuprof
 	}
 
-	memprof, err := os.Create(tempFilename("memprof.txt"))
-	if err != nil {
-		log.Fatalf("Failed to create profile file: %v", err)
-	}
-	defer memprof.Close()
-	var memproflog bytes.Buffer
-	cmd = exec.Command("go", "tool", "pprof", "--text", "--lines", "--show_bytes",
-		"--alloc_space", "--base", res.Files["memprof0"], os.Args[0], res.Files["memprof"])
-	cmd.Stdout = memprof
-	cmd.Stderr = &memproflog
-	err = cmd.Run()
+	memprof := processProfile("--lines", "--show_bytes", "--alloc_space", "--base", res.Files["memprof0"], os.Args[0], res.Files["memprof"])
 	delete(res.Files, "memprof")
 	delete(res.Files, "memprof0")
-	if err != nil {
-		log.Printf("go tool pprof memprof failed: %v\n%v", err, memproflog.String())
-		// Deliberately ignore the error and continue.
-	} else {
-		res.Files["memprof"] = memprof.Name()
+	if memprof != "" {
+		res.Files["memprof"] = memprof
 	}
+
 	return res
 }
 
-func RunBenchmark(f BenchFunc) PerfResult {
+// processProfile invokes 'go tool pprof' with the specified args
+// and returns name of the resulting file, or an empty string.
+func processProfile(args ...string) string {
+	proff, err := os.Create(tempFilename("prof.txt"))
+	if err != nil {
+		log.Printf("Failed to create profile file: %v", err)
+		return ""
+	}
+	defer proff.Close()
+	var proflog bytes.Buffer
+	cmdargs := append([]string{"tool", "pprof", "--text"}, args...)
+	cmd := exec.Command("go", cmdargs...)
+	cmd.Stdout = proff
+	cmd.Stderr = &proflog
+	err = cmd.Run()
+	if err != nil {
+		log.Printf("go tool pprof cpuprof failed: %v\n%v", err, proflog.String())
+		return "" // Deliberately ignore the error.
+	}
+	return proff.Name()
+}
+
+// runBenchmark is an internal function that runs f several times
+// with increasing number of iterations until execution time reaches
+// the requested duration.
+func runBenchmark(f BenchFunc) PerfResult {
 	res := MakePerfResult()
-	for ChooseN(&res) {
+	for chooseN(&res) {
 		log.Printf("Benchmarking %v iterations\n", res.N)
-		res = RunOnce(f, res.N)
+		res = runBenchmarkOnce(f, res.N)
 		log.Printf("Done: %+v\n", res)
 	}
 	return res
 }
 
-func RunOnce(f BenchFunc, N uint64) PerfResult {
+// runBenchmarkOnce is an internal function that runs f once
+// and collects all performance metrics and profiles.
+func runBenchmarkOnce(f BenchFunc, N uint64) PerfResult {
 	PerfLatencyInit(N)
 	runtime.GC()
 	mstats0 := new(runtime.MemStats)
@@ -246,6 +248,24 @@ func RunOnce(f BenchFunc, N uint64) PerfResult {
 	return res
 }
 
+// PerfParallel is a helper function that runs f
+// N times in P*GOMAXPROCS goroutines.
+func PerfParallel(N uint64, P int, f func()) {
+	numProcs := P * runtime.GOMAXPROCS(0)
+	var wg sync.WaitGroup
+	wg.Add(numProcs)
+	for p := 0; p < numProcs; p++ {
+		go func() {
+			for int64(atomic.AddUint64(&N, ^uint64(0))) >= 0 {
+				f()
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+}
+
+// perfLatency collects and reports information about latencies.
 var perfLatency struct {
 	data PerfLatencyData
 	idx  int32
@@ -283,7 +303,8 @@ func PerfLatencyCollect(res *PerfResult) {
 	res.Metrics["latency-99"] = perfLatency.data[cnt*99/100]
 }
 
-func ChooseN(res *PerfResult) bool {
+// chooseN chooses the next number of iterations for benchmark.
+func chooseN(res *PerfResult) bool {
 	const MaxN = 1e12
 	last := res.N
 	if last == 0 {
@@ -299,6 +320,7 @@ func ChooseN(res *PerfResult) bool {
 	return true
 }
 
+// roundUp rounds the number of iterations to a nice value.
 func roundUp(n uint64) uint64 {
 	tmp := n
 	base := uint64(1)

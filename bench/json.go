@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// JSON benchmark marshals and unmarshals ~2MB json string
+// with a tree-like object hierarchy, in 4*GOMAXPROCS goroutines.
+
 package main
 
 import (
@@ -27,8 +30,7 @@ func benchmarkJson(N uint64) {
 		if err := json.Unmarshal(jsonbytes, &r); err != nil {
 			panic(err)
 		}
-		_, err := json.Marshal(&jsondata)
-		if err != nil {
+		if _, err := json.Marshal(&jsondata); err != nil {
 			panic(err)
 		}
 	})
