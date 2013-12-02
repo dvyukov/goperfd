@@ -192,7 +192,7 @@ func RunOnce(f BenchFunc, N uint64) PerfResult {
 	runtime.GC()
 	mstats0 := new(runtime.MemStats)
 	runtime.ReadMemStats(mstats0)
-	PerfInitSysStats(N)
+	ss := PerfInitSysStats(N, nil)
 	res := MakePerfResult()
 	res.N = N
 	res.Files["memprof0"] = tempFilename("memprof")
@@ -218,6 +218,7 @@ func RunOnce(f BenchFunc, N uint64) PerfResult {
 	pprof.StopCPUProfile()
 
 	PerfLatencyCollect(&res)
+	ss.Collect(&res)
 
 	res.Files["memprof"] = tempFilename("memprof")
 	memprof, err := os.Create(res.Files["memprof"])
@@ -227,7 +228,6 @@ func RunOnce(f BenchFunc, N uint64) PerfResult {
 	pprof.WriteHeapProfile(memprof)
 	memprof.Close()
 
-	PerfCollectSysStats(&res)
 	mstats1 := new(runtime.MemStats)
 	runtime.ReadMemStats(mstats1)
 	res.Metrics["allocated"] = (mstats1.TotalAlloc - mstats0.TotalAlloc) / N

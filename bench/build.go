@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	"log"
 	"os"
 	"os/exec"
@@ -34,14 +35,19 @@ func BenchmarkOnce() PerfResult {
 	// run 'go build -a'
 	t0 := time.Now()
 	cmd := exec.Command("go", "build", "-a", "-v", "-p", os.Getenv("GOMAXPROCS"), "std")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Fatalf("Failed to run 'go build -a -v std': %v\n%v", err, string(out))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		log.Fatalf("Failed to start 'go build -a -v std': %v", err)
+	}
+	ss := PerfInitSysStats(1, cmd)
+	if err := cmd.Wait(); err != nil {
+		log.Fatalf("Failed to run 'go build -a -v std': %v\n%v", err, stderr.String())
 	}
 	res := MakePerfResult()
 	res.RunTime = uint64(time.Since(t0))
 	res.Metrics["runtime"] = res.RunTime
-	PerfCollectProcessStats(&res, cmd)
+	ss.Collect(&res)
 
 	// go command binary size
 	gof, err := os.Open(os.Getenv("GOROOT") + "/bin/go")

@@ -11,61 +11,51 @@ import (
 	"syscall"
 )
 
-var sysStats struct {
+type sysStats struct {
 	N      uint64
+	Cmd    *exec.Cmd
 	Rusage syscall.Rusage
 }
 
-func PerfInitSysStats(N uint64) {
-	sysStats.N = N
-	err := syscall.Getrusage(0, &sysStats.Rusage)
-	if err != nil {
-		log.Printf("Getrusage failed: %v", err)
-		sysStats.N = 0
-		// Deliberately ignore the error.
-		return
+func PerfInitSysStats(N uint64, cmd *exec.Cmd) sysStats {
+	ss := sysStats{N: N, Cmd: cmd}
+	if cmd == nil {
+		// TODO:
+		// 1. call syscall.GetProcessMemoryInfo(syscall.GetCurrentProcess()), save info
+		// 2. call syscall.GetSystemTimes(syscall.GetCurrentProcess()), save info
+	} else {
+		// TODO:
+		// get cmd.Process.Pid, convert it to handle with syscall.OpenProcess, save the handle
 	}
+	return ss
 }
 
-func PerfCollectSysStats(res *PerfResult) {
-	if sysStats.N == 0 {
-		return
+func (ss sysStats) Collect(res *PerfResult) {
+	if ss.Cmd == nil {
+		// TODO:
+		// 1. call syscall.GetProcessMemoryInfo(syscall.GetCurrentProcess())
+		// 2. call syscall.GetSystemTimes(syscall.GetCurrentProcess())
+		// 3. calculate diffs with saved info
+	} else {
+		// 1. call syscall.GetProcessMemoryInfo(saved handle)
+		// 2. call syscall.GetSystemTimes(saved handle)
+		// 3. calculate stats
 	}
-	Rusage := new(syscall.Rusage)
-	err := syscall.Getrusage(0, Rusage)
-	if err != nil {
-		log.Printf("Getrusage failed: %v", err)
-		// Deliberately ignore the error.
-		return
-	}
-	res.Metrics["rss"] = maxRss(Rusage)
-	res.Metrics["cputime"] = (cpuTime(Rusage) - cpuTime(&sysStats.Rusage)) / sysStats.N
+	// res.Metrics["rss"] = ...
+	// res.Metrics["cputime"] = ...
 }
 
-func PerfCollectProcessStats(res *PerfResult, cmd *exec.Cmd) {
-	usage := cmd.ProcessState.SysUsage().(*syscall.Rusage)
-	res.Metrics["rss"] = maxRss(usage)
-	res.Metrics["cputime"] = cpuTime(usage)
-	/*
-		type Rusage struct {
-	        CreationTime Filetime
-	        ExitTime     Filetime
-	        KernelTime   Filetime
-	        UserTime     Filetime
-		}
+/* FTR
 
-		func ftToDuration(ft *syscall.Filetime) time.Duration {
-	        n := int64(ft.HighDateTime)<<32 + int64(ft.LowDateTime) // in 100-nanosecond intervals
-	        return time.Duration(n*100) * time.Nanosecond
-		}
-	*/
+type syscall.Rusage struct {
+        CreationTime Filetime
+        ExitTime     Filetime
+        KernelTime   Filetime
+        UserTime     Filetime
 }
 
-func cpuTime(usage *syscall.Rusage) uint64 {
-	return uint64(usage.Utime.Sec)*1e9 + uint64(usage.Utime.Usec*1e3) +
-		uint64(usage.Stime.Sec)*1e9 + uint64(usage.Stime.Usec)*1e3
+func ftToDuration(ft *syscall.Filetime) time.Duration {
+        n := int64(ft.HighDateTime)<<32 + int64(ft.LowDateTime) // in 100-nanosecond intervals
+        return time.Duration(n*100) * time.Nanosecond
 }
-
-func maxRss(usage *syscall.Rusage) uint64 {
-	return uint64(usage.Maxrss) * (1 << 10)
-}
+*/

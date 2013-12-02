@@ -12,48 +12,44 @@ import (
 	"syscall"
 )
 
-var sysStats struct {
+type sysStats struct {
 	N      uint64
+	Cmd    *exec.Cmd
 	Rusage syscall.Rusage
 }
 
-func PerfInitSysStats(N uint64) {
-	sysStats.N = N
-	err := syscall.Getrusage(0, &sysStats.Rusage)
-	if err != nil {
-		log.Printf("Getrusage failed: %v", err)
-		sysStats.N = 0
-		// Deliberately ignore the error.
-		return
+func PerfInitSysStats(N uint64, cmd *exec.Cmd) sysStats {
+	ss := sysStats{N: N, Cmd: cmd}
+	if cmd == nil {
+		err := syscall.Getrusage(0, &ss.Rusage)
+		if err != nil {
+			log.Printf("Getrusage failed: %v", err)
+			ss.N = 0
+			// Deliberately ignore the error.
+		}
 	}
+	return ss
 }
 
-func PerfCollectSysStats(res *PerfResult) {
-	if sysStats.N == 0 {
+func (ss sysStats) Collect(res *PerfResult) {
+	if ss.N == 0 {
 		return
 	}
 	Rusage := new(syscall.Rusage)
-	err := syscall.Getrusage(0, Rusage)
-	if err != nil {
-		log.Printf("Getrusage failed: %v", err)
-		// Deliberately ignore the error.
-		return
+	if ss.Cmd == nil {
+		err := syscall.Getrusage(0, Rusage)
+		if err != nil {
+			log.Printf("Getrusage failed: %v", err)
+			// Deliberately ignore the error.
+			return
+		}
+	} else {
+		Rusage = ss.Cmd.ProcessState.SysUsage().(*syscall.Rusage)
 	}
-	res.Metrics["rss"] = maxRss(Rusage)
-	res.Metrics["cputime"] = (cpuTime(Rusage) - cpuTime(&sysStats.Rusage)) / sysStats.N
-}
-
-func PerfCollectProcessStats(res *PerfResult, cmd *exec.Cmd) {
-	usage := cmd.ProcessState.SysUsage().(*syscall.Rusage)
-	res.Metrics["rss"] = maxRss(usage)
-	res.Metrics["cputime"] = cpuTime(usage)
-}
-
-func cpuTime(usage *syscall.Rusage) uint64 {
-	return uint64(usage.Utime.Sec)*1e9 + uint64(usage.Utime.Usec*1e3) +
-		uint64(usage.Stime.Sec)*1e9 + uint64(usage.Stime.Usec)*1e3
-}
-
-func maxRss(usage *syscall.Rusage) uint64 {
-	return uint64(usage.Maxrss) * (1 << 10)
+	cpuTime := func(usage *syscall.Rusage) uint64 {
+		return uint64(usage.Utime.Sec)*1e9 + uint64(usage.Utime.Usec*1e3) +
+			uint64(usage.Stime.Sec)*1e9 + uint64(usage.Stime.Usec)*1e3
+	}
+	res.Metrics["rss"] = uint64(Rusage.Maxrss) * (1 << 10)
+	res.Metrics["cputime"] = (cpuTime(Rusage) - cpuTime(&ss.Rusage)) / ss.N
 }
