@@ -34,15 +34,15 @@ func BenchmarkBuild() PerfResult {
 func BenchmarkOnce() PerfResult {
 	// run 'go build -a'
 	t0 := time.Now()
-	cmd := exec.Command("go", "build", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
+	cmd := exec.Command("go", "install", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
-		log.Fatalf("Failed to start 'go build -a -v std': %v", err)
+		log.Fatalf("Failed to start 'go install -a cmd/go': %v", err)
 	}
 	ss := PerfInitSysStats(1, cmd)
 	if err := cmd.Wait(); err != nil {
-		log.Fatalf("Failed to run 'go build -a -v std': %v\n%v", err, stderr.String())
+		log.Fatalf("Failed to run 'go install -a cmd/go': %v\n%v", err, stderr.String())
 	}
 	res := MakePerfResult()
 	res.RunTime = uint64(time.Since(t0))
