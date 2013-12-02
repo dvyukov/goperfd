@@ -34,7 +34,7 @@ func BenchmarkBuild() PerfResult {
 func BenchmarkOnce() PerfResult {
 	// run 'go build -a'
 	t0 := time.Now()
-	cmd := exec.Command("go", "build", "-a", "-v", "-p", os.Getenv("GOMAXPROCS"), "std")
+	cmd := exec.Command("go", "build", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
