@@ -19,7 +19,7 @@ type sysStats struct {
 	Rusage syscall.Rusage
 }
 
-func PerfInitSysStats(N uint64, cmd *exec.Cmd) sysStats {
+func InitSysStats(N uint64, cmd *exec.Cmd) sysStats {
 	ss := sysStats{N: N, Cmd: cmd}
 	if cmd == nil {
 		// TODO:
@@ -32,7 +32,7 @@ func PerfInitSysStats(N uint64, cmd *exec.Cmd) sysStats {
 	return ss
 }
 
-func (ss sysStats) Collect(res *PerfResult) {
+func (ss sysStats) Collect(res *Result) {
 	if ss.Cmd == nil {
 		// TODO:
 		// 1. call syscall.GetProcessMemoryInfo(syscall.GetCurrentProcess())

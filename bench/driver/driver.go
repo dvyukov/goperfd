@@ -4,14 +4,14 @@
 
 // This file contains common benchmarking logic shared between benchmarks.
 // It defines the main function which calls one of the benchmarks registered
-// with RegisterBenchmark function.
+// with Register function.
 // When a benchmark is invoked it has 2 choices:
-// 1. Do whatever it wants, fill and return PerfResult object.
-// 2. Call PerfBenchmark helper function and provide benchmarking function
+// 1. Do whatever it wants, fill and return Result object.
+// 2. Call Benchmark helper function and provide benchmarking function
 // func(N uint64), similar to standard testing benchmarks. The rest is handled
-// by PerfBenchmark.
+// by the driver.
 
-package main
+package driver
 
 import (
 	"bytes"
@@ -33,19 +33,27 @@ var (
 	bench     = flag.String("bench", "", "benchmark to run")
 	flake     = flag.Int("flake", 0, "test flakiness of a benchmark")
 	benchNum  = flag.Int("benchnum", 5, "run each benchmark that many times")
-	benchTime = flag.Duration("benchtime", 5*time.Second, "benchmarking time for a single run")
 	benchMem  = flag.Int("benchmem", 64, "approx RSS value to aim at in benchmarks, in MB")
+	benchTime = flag.Duration("benchtime", 5*time.Second, "benchmarking time for a single run")
 	tmpDir    = flag.String("tmpdir", os.TempDir(), "dir for temporary files")
 
-	benchmarks = make(map[string]func() PerfResult)
+	BenchNum  int
+	BenchMem  int
+	BenchTime time.Duration
+
+	benchmarks = make(map[string]func() Result)
 )
 
-func RegisterBenchmark(name string, f func() PerfResult) {
+func Register(name string, f func() Result) {
 	benchmarks[name] = f
 }
 
-func main() {
+func Main() {
 	flag.Parse()
+	BenchNum = *benchNum
+	BenchMem = *benchMem
+	BenchTime = *benchTime
+
 	if *bench == "" {
 		printBenchmarks()
 		return
@@ -55,10 +63,12 @@ func main() {
 		fmt.Printf("unknown benchmark '%v'\n", *bench)
 		os.Exit(1)
 	}
+
 	if *flake > 0 {
 		testFlakiness(f, *flake)
 		return
 	}
+
 	res := f()
 	for k, v := range res.Metrics {
 		fmt.Printf("GOPERF-METRIC:%v=%v\n", k, v)
@@ -85,8 +95,8 @@ func printBenchmarks() {
 
 // testFlakiness runs the function N+2 times and prints metrics diffs between
 // the second and subsequent runs.
-func testFlakiness(f func() PerfResult, N int) {
-	res := make([]PerfResult, N+2)
+func testFlakiness(f func() Result, N int) {
+	res := make([]Result, N+2)
 	for i := range res {
 		res[i] = f()
 	}
@@ -101,8 +111,8 @@ func testFlakiness(f func() PerfResult, N int) {
 	}
 }
 
-// PerfResult contains all the interesting data about benchmark execution.
-type PerfResult struct {
+// Result contains all the interesting data about benchmark execution.
+type Result struct {
 	N        uint64        // number of iterations
 	Duration time.Duration // total run duration
 	RunTime  uint64        // ns/op
@@ -110,17 +120,14 @@ type PerfResult struct {
 	Files    map[string]string
 }
 
-func MakePerfResult() PerfResult {
-	return PerfResult{Metrics: make(map[string]uint64), Files: make(map[string]string)}
+func MakeResult() Result {
+	return Result{Metrics: make(map[string]uint64), Files: make(map[string]string)}
 }
 
-type BenchFunc func(N uint64)
-
-// PerfBenchmark is the highest level benchmarking function.
-// It runs f several times, collects stats, chooses the best run
+// Benchmark runs f several times, collects stats, chooses the best run
 // and creates cpu/mem profiles.
-func PerfBenchmark(f BenchFunc) PerfResult {
-	res := MakePerfResult()
+func Benchmark(f func(uint64)) Result {
+	res := MakeResult()
 	for i := 0; i < *benchNum; i++ {
 		res1 := runBenchmark(f)
 		if res.N == 0 || res.RunTime > res1.RunTime {
@@ -174,11 +181,10 @@ func processProfile(args ...string) string {
 	return proff.Name()
 }
 
-// runBenchmark is an internal function that runs f several times
-// with increasing number of iterations until execution time reaches
-// the requested duration.
-func runBenchmark(f BenchFunc) PerfResult {
-	res := MakePerfResult()
+// runBenchmark runs f several times with increasing number of iterations
+// until execution time reaches the requested duration.
+func runBenchmark(f func(uint64)) Result {
+	res := MakeResult()
 	for chooseN(&res) {
 		log.Printf("Benchmarking %v iterations\n", res.N)
 		res = runBenchmarkOnce(f, res.N)
@@ -187,15 +193,14 @@ func runBenchmark(f BenchFunc) PerfResult {
 	return res
 }
 
-// runBenchmarkOnce is an internal function that runs f once
-// and collects all performance metrics and profiles.
-func runBenchmarkOnce(f BenchFunc, N uint64) PerfResult {
-	PerfLatencyInit(N)
+// runBenchmarkOnce runs f once and collects all performance metrics and profiles.
+func runBenchmarkOnce(f func(uint64), N uint64) Result {
+	latencyInit(N)
 	runtime.GC()
 	mstats0 := new(runtime.MemStats)
 	runtime.ReadMemStats(mstats0)
-	ss := PerfInitSysStats(N, nil)
-	res := MakePerfResult()
+	ss := InitSysStats(N, nil)
+	res := MakeResult()
 	res.N = N
 	res.Files["memprof0"] = tempFilename("memprof")
 	memprof0, err := os.Create(res.Files["memprof0"])
@@ -219,7 +224,7 @@ func runBenchmarkOnce(f BenchFunc, N uint64) PerfResult {
 	res.Metrics["runtime"] = res.RunTime
 	pprof.StopCPUProfile()
 
-	PerfLatencyCollect(&res)
+	latencyCollect(&res)
 	ss.Collect(&res)
 
 	res.Files["memprof"] = tempFilename("memprof")
@@ -238,7 +243,7 @@ func runBenchmarkOnce(f BenchFunc, N uint64) PerfResult {
 	res.Metrics["sys-heap"] = mstats1.HeapSys
 	res.Metrics["sys-stack"] = mstats1.StackSys
 	res.Metrics["gc-pause-total"] = (mstats1.PauseTotalNs - mstats0.PauseTotalNs) / N
-	PerfCollectGo12MemStats(&res, mstats0, mstats1)
+	collectGo12MemStats(&res, mstats0, mstats1)
 	numGC := uint64(mstats1.NumGC - mstats0.NumGC)
 	if numGC == 0 {
 		res.Metrics["gc-pause-one"] = 0
@@ -248,9 +253,8 @@ func runBenchmarkOnce(f BenchFunc, N uint64) PerfResult {
 	return res
 }
 
-// PerfParallel is a helper function that runs f
-// N times in P*GOMAXPROCS goroutines.
-func PerfParallel(N uint64, P int, f func()) {
+// Parallel is a public helper function that runs f N times in P*GOMAXPROCS goroutines.
+func Parallel(N uint64, P int, f func()) {
 	numProcs := P * runtime.GOMAXPROCS(0)
 	var wg sync.WaitGroup
 	wg.Add(numProcs)
@@ -266,45 +270,45 @@ func PerfParallel(N uint64, P int, f func()) {
 }
 
 // perfLatency collects and reports information about latencies.
-var perfLatency struct {
-	data PerfLatencyData
+var latency struct {
+	data latencyData
 	idx  int32
 }
 
-type PerfLatencyData []uint64
+type latencyData []uint64
 
-func (p PerfLatencyData) Len() int           { return len(p) }
-func (p PerfLatencyData) Less(i, j int) bool { return p[i] < p[j] }
-func (p PerfLatencyData) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+func (p latencyData) Len() int           { return len(p) }
+func (p latencyData) Less(i, j int) bool { return p[i] < p[j] }
+func (p latencyData) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
-func PerfLatencyInit(N uint64) {
+func latencyInit(N uint64) {
 	N = min(N, 1e6) // bound the amount of memory consumed
-	perfLatency.data = make(PerfLatencyData, N)
-	perfLatency.idx = 0
+	latency.data = make(latencyData, N)
+	latency.idx = 0
 }
 
-func PerfLatencyNote(t time.Time) {
+func LatencyNote(t time.Time) {
 	d := time.Since(t)
-	i := atomic.AddInt32(&perfLatency.idx, 1) - 1
-	if int(i) >= len(perfLatency.data) {
+	i := atomic.AddInt32(&latency.idx, 1) - 1
+	if int(i) >= len(latency.data) {
 		return
 	}
-	perfLatency.data[i] = uint64(d)
+	latency.data[i] = uint64(d)
 }
 
-func PerfLatencyCollect(res *PerfResult) {
-	cnt := perfLatency.idx
+func latencyCollect(res *Result) {
+	cnt := latency.idx
 	if cnt == 0 {
 		return
 	}
-	sort.Sort(perfLatency.data[:cnt])
-	res.Metrics["latency-50"] = perfLatency.data[cnt*50/100]
-	res.Metrics["latency-95"] = perfLatency.data[cnt*95/100]
-	res.Metrics["latency-99"] = perfLatency.data[cnt*99/100]
+	sort.Sort(latency.data[:cnt])
+	res.Metrics["latency-50"] = latency.data[cnt*50/100]
+	res.Metrics["latency-95"] = latency.data[cnt*95/100]
+	res.Metrics["latency-99"] = latency.data[cnt*99/100]
 }
 
 // chooseN chooses the next number of iterations for benchmark.
-func chooseN(res *PerfResult) bool {
+func chooseN(res *Result) bool {
 	const MaxN = 1e12
 	last := res.N
 	if last == 0 {

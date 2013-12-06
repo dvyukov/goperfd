@@ -4,7 +4,7 @@
 
 // +build darwin freebsd linux
 
-package main
+package driver
 
 import (
 	"log"
@@ -18,7 +18,7 @@ type sysStats struct {
 	Rusage syscall.Rusage
 }
 
-func PerfInitSysStats(N uint64, cmd *exec.Cmd) sysStats {
+func InitSysStats(N uint64, cmd *exec.Cmd) sysStats {
 	ss := sysStats{N: N, Cmd: cmd}
 	if cmd == nil {
 		err := syscall.Getrusage(0, &ss.Rusage)
@@ -31,7 +31,7 @@ func PerfInitSysStats(N uint64, cmd *exec.Cmd) sysStats {
 	return ss
 }
 
-func (ss sysStats) Collect(res *PerfResult) {
+func (ss sysStats) Collect(res *Result) {
 	if ss.N == 0 {
 		return
 	}
@@ -50,7 +50,7 @@ func (ss sysStats) Collect(res *PerfResult) {
 		return uint64(usage.Utime.Sec)*1e9 + uint64(usage.Utime.Usec*1e3) +
 			uint64(usage.Stime.Sec)*1e9 + uint64(usage.Stime.Usec)*1e3
 	}
-	res.Metrics["rss"] = uint64(Rusage.Maxrss) * (1 << 10)
+	res.Metrics["rss"] = uint64(Rusage.Maxrss) * rssMultiplier
 	res.Metrics["cputime"] = (cpuTime(Rusage) - cpuTime(&ss.Rusage)) / ss.N
 
 	pid := 0

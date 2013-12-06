@@ -4,7 +4,7 @@
 
 // +build linux
 
-package main
+package driver
 
 import (
 	"bytes"
@@ -17,8 +17,10 @@ import (
 	"strconv"
 )
 
+const rssMultiplier = 1 << 10
+
 // Runs the cmd under perf. Returns filename of the profile. Any errors are ignored.
-func runUnderProfiler(args ...string) string {
+func RunUnderProfiler(args ...string) string {
 	perf, err := os.Create(tempFilename("perf.txt"))
 	if err != nil {
 		log.Printf("Failed to create profile file: %v", err)
