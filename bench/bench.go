@@ -9,7 +9,7 @@ import (
 
 	_ "code.google.com/p/goperfd/bench/json"
 	//_ "dvyukov-go-perf-dashboard/bench/rpc"
-	//_ "dvyukov-go-perf-dashboard/bench/build"
+	_ "code.google.com/p/goperfd/bench/build"
 	//_ "dvyukov-go-perf-dashboard/bench/http"
 	//_ "dvyukov-go-perf-dashboard/bench/widefinder"
 )

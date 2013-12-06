@@ -28,10 +28,10 @@ func RunUnderProfiler(args ...string) string {
 	}
 	defer perf.Close()
 
-	cmd := exec.Command("perf", append([]string{"record"}, args...)...)
+	cmd := exec.Command("perf", append([]string{"record", "-o", "perf.data"}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("Failed to execute 'perf record %v': %v\n%v", cmd, err, string(out))
+		log.Printf("Failed to execute 'perf record %v': %v\n%v", args, err, string(out))
 		return ""
 	}
 
