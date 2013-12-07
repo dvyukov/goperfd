@@ -20,6 +20,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"runtime/pprof"
 	"sort"
@@ -221,11 +222,11 @@ func runBenchmarkOnce(f func(uint64), N uint64) Result {
 	f(N)
 	res.Duration = time.Since(t0)
 	res.RunTime = uint64(time.Since(t0)) / N
-	res.Metrics["runtime"] = res.RunTime
+	res.Metrics["time"] = res.RunTime
 	pprof.StopCPUProfile()
 
 	latencyCollect(&res)
-	ss.Collect(&res)
+	ss.Collect(&res, "")
 
 	res.Files["memprof"] = tempFilename("memprof")
 	memprof, err := os.Create(res.Files["memprof"])
@@ -364,5 +365,5 @@ var tmpSeq = 0
 
 func tempFilename(ext string) string {
 	tmpSeq++
-	return fmt.Sprintf("%v/%v.%v", *tmpDir, tmpSeq, ext)
+	return filepath.Join(*tmpDir, fmt.Sprintf("%v.%v", tmpSeq, ext))
 }

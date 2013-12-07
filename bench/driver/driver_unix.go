@@ -31,12 +31,16 @@ func InitSysStats(N uint64, cmd *exec.Cmd) sysStats {
 	return ss
 }
 
-func (ss sysStats) Collect(res *Result) {
+func (ss sysStats) Collect(res *Result, prefix string) {
 	if ss.N == 0 {
 		return
 	}
 	Rusage := new(syscall.Rusage)
 	if ss.Cmd == nil {
+		vm := getVMPeak()
+		if vm != 0 {
+			res.Metrics[prefix+"virtual-mem"] = vm
+		}
 		err := syscall.Getrusage(0, Rusage)
 		if err != nil {
 			log.Printf("Getrusage failed: %v", err)
@@ -50,15 +54,6 @@ func (ss sysStats) Collect(res *Result) {
 		return uint64(usage.Utime.Sec)*1e9 + uint64(usage.Utime.Usec*1e3) +
 			uint64(usage.Stime.Sec)*1e9 + uint64(usage.Stime.Usec)*1e3
 	}
-	res.Metrics["rss"] = uint64(Rusage.Maxrss) * rssMultiplier
-	res.Metrics["cputime"] = (cpuTime(Rusage) - cpuTime(&ss.Rusage)) / ss.N
-
-	pid := 0
-	if ss.Cmd != nil {
-		pid = ss.Cmd.Process.Pid
-	}
-	vm := getVMPeak(pid)
-	if vm != 0 {
-		res.Metrics["vm"] = vm
-	}
+	res.Metrics[prefix+"rss"] = uint64(Rusage.Maxrss) * rssMultiplier
+	res.Metrics[prefix+"cputime"] = (cpuTime(Rusage) - cpuTime(&ss.Rusage)) / ss.N
 }

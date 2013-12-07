@@ -20,14 +20,7 @@ import (
 const rssMultiplier = 1 << 10
 
 // Runs the cmd under perf. Returns filename of the profile. Any errors are ignored.
-func RunUnderProfiler(args ...string) string {
-	perf, err := os.Create(tempFilename("perf.txt"))
-	if err != nil {
-		log.Printf("Failed to create profile file: %v", err)
-		return ""
-	}
-	defer perf.Close()
-
+func RunUnderProfiler(args ...string) (string, string) {
 	cmd := exec.Command("perf", append([]string{"record", "-o", "perf.data"}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -35,35 +28,73 @@ func RunUnderProfiler(args ...string) string {
 		return ""
 	}
 
-	var stderr bytes.Buffer
-	cmd = exec.Command("perf", "report", "--stdio", "--sort", "comm")
-	cmd.Stdout = perf
-	cmd.Stderr = &stderr
-	if err = cmd.Run(); err != nil {
-		log.Printf("Failed to execute 'perf report': %v\n%v", err, stderr.String())
-		return ""
-	}
-
-	stderr.Reset()
-	cmd = exec.Command("perf", "report", "--stdio")
-	cmd.Stdout = perf
-	cmd.Stderr = &stderr
-	if err = cmd.Run(); err != nil {
-		log.Printf("Failed to execute 'perf report': %v\n%v", err, stderr.String())
-		return ""
-	}
-
-	return perf.Name()
+	perf1 := perfReport("--sort", "comm")
+	perf2 := perfReport()
+	return perf1, perf2
 }
 
-func getVMPeak(pid int) uint64 {
-	pids := "self"
-	if pid != 0 {
-		pids = strconv.Itoa(pid)
+func perfReport(args ...string) string {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd = exec.Command("perf", append([]string{"report", "--stdio"}, args...))
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err = cmd.Run(); err != nil {
+		log.Printf("Failed to execute 'perf report': %v\n%v", err, stderr.String())
+		return ""
 	}
-	data, err := ioutil.ReadFile(fmt.Sprintf("/proc/%v/status", pids))
+
+	f, err := os.Create(tempFilename("perf.txt"))
 	if err != nil {
-		log.Printf("Failed to read /proc/pid/status: %v", err)
+		log.Printf("Failed to create profile file: %v", err)
+		return ""
+	}
+	defer f.Close()
+	ff := bufio.NewWriter(f)
+
+	// Strip lines starting with #, and limit output to 100 lines.
+	s := bufio.NewScanner(stdout)
+	for n := 0; s.Scan() && n < 100; {
+		ln := s.Bytes()
+		if len(ln) == 0 || ln[0] == '#' {
+			continue
+		}
+		ss.Write(ln)
+		n++
+	}
+	if s.Err() != nil {
+		log.Printf("Failed to scan profile: %v", s.Err())
+		return ""
+	}
+
+	return f.Name()
+}
+
+// Runs size on the file. Returns filename with output. Any errors are ignored.
+func RunSize(file string) string {
+	resf, err := os.Create(tempFilename("size.txt"))
+	if err != nil {
+		log.Printf("Failed to create output file: %v", err)
+		return ""
+	}
+	defer resf.Close()
+
+	var stderr bytes.Buffer
+	cmd := exec.Command("size", "-A", file)
+	cmd.Stdout = resf
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		log.Printf("Failed to execute 'size -m %v': %v\n%v", file, err, stderr.String())
+		return ""
+	}
+
+	return resf.Name()
+}
+
+func getVMPeak() uint64 {
+	data, err := ioutil.ReadFile("/proc/self/status")
+	if err != nil {
+		log.Printf("Failed to read /proc/self/status: %v", err)
 		return 0
 	}
 

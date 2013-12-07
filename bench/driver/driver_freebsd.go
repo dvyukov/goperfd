@@ -6,10 +6,14 @@ package driver
 
 const rssMultiplier = 1
 
-func runUnderProfiler(args ...string) string {
+func RunUnderProfiler(args ...string) (string, string) {
+	return "", ""
+}
+
+func RunSize(file string) string {
 	return ""
 }
 
-func getVMPeak(pid int) uint64 {
+func getVMPeak() uint64 {
 	return 0
 }

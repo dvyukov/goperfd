@@ -30,9 +30,12 @@ func benchmark() driver.Result {
 		}
 		log.Printf("Run %v: %+v\n", i, res)
 	}
-	perf := driver.RunUnderProfiler("go", "install", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
-	if perf != "" {
-		res.Files["perf"] = perf
+	perf1, perf2 := driver.RunUnderProfiler("go", "install", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
+	if perf1 != "" {
+		res.Files["processes"] = perf1
+	}
+	if perf2 != "" {
+		res.Files["cpuprof"] = perf2
 	}
 	return res
 }
@@ -52,11 +55,12 @@ func benchmarkOnce() driver.Result {
 	}
 	res := driver.MakeResult()
 	res.RunTime = uint64(time.Since(t0))
-	res.Metrics["runtime"] = res.RunTime
-	ss.Collect(&res)
+	res.Metrics["build-time"] = res.RunTime
+	ss.Collect(&res, "build-")
 
 	// go command binary size
-	gof, err := os.Open(os.Getenv("GOROOT") + "/bin/go")
+	gobin := os.Getenv("GOROOT") + "/bin/go"
+	gof, err := os.Open(gobin)
 	if err != nil {
 		log.Fatalf("Failed to open $GOROOT/bin/go: %v\n", err)
 	}
@@ -65,5 +69,11 @@ func benchmarkOnce() driver.Result {
 		log.Fatalf("Failed to stat $GOROOT/bin/go: %v\n", err)
 	}
 	res.Metrics["binary-size"] = uint64(st.Size())
+
+	sizef := driver.RunSize(gobin)
+	if sizef != "" {
+		res.Files["sections"] = sizef
+	}
+
 	return res
 }
