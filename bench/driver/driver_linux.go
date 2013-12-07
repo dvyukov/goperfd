@@ -7,8 +7,8 @@
 package driver
 
 import (
+	"bufio"
 	"bytes"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -25,7 +25,7 @@ func RunUnderProfiler(args ...string) (string, string) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("Failed to execute 'perf record %v': %v\n%v", args, err, string(out))
-		return ""
+		return "", ""
 	}
 
 	perf1 := perfReport("--sort", "comm")
@@ -36,10 +36,10 @@ func RunUnderProfiler(args ...string) (string, string) {
 func perfReport(args ...string) string {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	cmd = exec.Command("perf", append([]string{"report", "--stdio"}, args...))
+	cmd := exec.Command("perf", append([]string{"report", "--stdio"}, args...)...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err = cmd.Run(); err != nil {
+	if err := cmd.Run(); err != nil {
 		log.Printf("Failed to execute 'perf report': %v\n%v", err, stderr.String())
 		return ""
 	}
@@ -50,16 +50,19 @@ func perfReport(args ...string) string {
 		return ""
 	}
 	defer f.Close()
+
 	ff := bufio.NewWriter(f)
+	defer ff.Flush()
 
 	// Strip lines starting with #, and limit output to 100 lines.
-	s := bufio.NewScanner(stdout)
+	s := bufio.NewScanner(&stdout)
 	for n := 0; s.Scan() && n < 100; {
 		ln := s.Bytes()
 		if len(ln) == 0 || ln[0] == '#' {
 			continue
 		}
-		ss.Write(ln)
+		ff.Write(ln)
+		ff.Write([]byte{'\n'})
 		n++
 	}
 	if s.Err() != nil {
