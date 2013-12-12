@@ -2,15 +2,20 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package main
+package driver
 
 import (
-	"log"
+	"os/exec"
 	"syscall"
 )
 
-func runUnderProfiler(args ...string) string {
+func RunUnderProfiler(args ...string) (string, string) {
+	return "", ""
+}
+
+func RunSize(file string) string {
 	return ""
+
 }
 
 type sysStats struct {
@@ -32,7 +37,7 @@ func InitSysStats(N uint64, cmd *exec.Cmd) sysStats {
 	return ss
 }
 
-func (ss sysStats) Collect(res *Result) {
+func (ss sysStats) Collect(res *Result, prefix string) {
 	if ss.Cmd == nil {
 		// TODO:
 		// 1. call syscall.GetProcessMemoryInfo(syscall.GetCurrentProcess())
