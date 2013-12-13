@@ -9,7 +9,9 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
+	"runtime"
 
 	"code.google.com/p/goperfd/bench/driver"
 )
@@ -59,7 +61,10 @@ func benchmarkOnce() driver.Result {
 	ss.Collect(&res, "build-")
 
 	// go command binary size
-	gobin := os.Getenv("GOROOT") + "/bin/go"
+	gobin := filepath.Join(os.Getenv("GOROOT"), "bin", "go")
+	if runtime.GOOS == "windows" {
+		gobin += ".exe"
+	}
 	gof, err := os.Open(gobin)
 	if err != nil {
 		log.Fatalf("Failed to open $GOROOT/bin/go: %v\n", err)
