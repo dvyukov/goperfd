@@ -5,9 +5,42 @@
 package driver
 
 import (
+	"log"
 	"os/exec"
 	"syscall"
+	"unsafe"
 )
+
+// access to Windows APIs
+var (
+	modkernel32              = syscall.NewLazyDLL("psapi.dll")
+	procGetProcessMemoryInfo = modkernel32.NewProc("GetProcessMemoryInfo")
+)
+
+type PROCESS_MEMORY_COUNTERS struct {
+	CB                         uint32
+	PageFaultCount             uint32
+	PeakWorkingSetSize         uintptr
+	WorkingSetSize             uintptr
+	QuotaPeakPagedPoolUsage    uintptr
+	QuotaPagedPoolUsage        uintptr
+	QuotaPeakNonPagedPoolUsage uintptr
+	QuotaNonPagedPoolUsage     uintptr
+	PagefileUsage              uintptr
+	PeakPagefileUsage          uintptr
+}
+
+func getProcessMemoryInfo(h syscall.Handle, mem *PROCESS_MEMORY_COUNTERS) (err error) {
+	r1, _, e1 := syscall.Syscall(procGetProcessMemoryInfo.Addr(), 3, uintptr(h), uintptr(unsafe.Pointer(mem)), uintptr(unsafe.Sizeof(*mem)))
+	if r1 == 0 {
+		if e1 != 0 {
+			err = error(e1)
+		} else {
+			err = syscall.EINVAL
+		}
+	}
+	return
+}
 
 func RunUnderProfiler(args ...string) (string, string) {
 	return "", ""
@@ -15,54 +48,66 @@ func RunUnderProfiler(args ...string) (string, string) {
 
 func RunSize(file string) string {
 	return ""
-
 }
 
 type sysStats struct {
 	N      uint64
 	Cmd    *exec.Cmd
-	Rusage syscall.Rusage
+	Handle syscall.Handle
+	Mem    PROCESS_MEMORY_COUNTERS
+	CPU    syscall.Rusage
 }
 
-func InitSysStats(N uint64, cmd *exec.Cmd) sysStats {
-	ss := sysStats{N: N, Cmd: cmd}
+func InitSysStats(N uint64, cmd *exec.Cmd) (ss sysStats) {
 	if cmd == nil {
-		// TODO:
-		// 1. call syscall.GetProcessMemoryInfo(syscall.GetCurrentProcess()), save info
-		// 2. call syscall.GetSystemTimes(syscall.GetCurrentProcess()), save info
+		h, err := syscall.GetCurrentProcess()
+		if err != nil {
+			log.Printf("GetCurrentProcess failed: %v", err)
+			return
+		}
+		if err := getProcessMemoryInfo(h, &ss.Mem); err != nil {
+			log.Printf("GetProcessMemoryInfo failed: %v", err)
+			return
+		}
+		if err := syscall.GetProcessTimes(h, &ss.CPU.CreationTime, &ss.CPU.ExitTime, &ss.CPU.KernelTime, &ss.CPU.UserTime); err != nil {
+			log.Printf("GetProcessTimes failed: %v", err)
+			return
+		}
+		ss.Handle = h
 	} else {
-		// TODO:
-		// get cmd.Process.Pid, convert it to handle with syscall.OpenProcess, save the handle
+		h, err := syscall.OpenProcess(syscall.PROCESS_QUERY_INFORMATION, false, uint32(cmd.Process.Pid))
+		if err != nil {
+			log.Printf("OpenProcess failed: %v", err)
+			return
+		}
+		ss.Handle = h
 	}
+	ss.N = N
+	ss.Cmd = cmd
 	return ss
 }
 
 func (ss sysStats) Collect(res *Result, prefix string) {
-	if ss.Cmd == nil {
-		// TODO:
-		// 1. call syscall.GetProcessMemoryInfo(syscall.GetCurrentProcess())
-		// 2. call syscall.GetSystemTimes(syscall.GetCurrentProcess())
-		// 3. calculate diffs with saved info
-	} else {
-		// 1. call syscall.GetProcessMemoryInfo(saved handle)
-		// 2. call syscall.GetSystemTimes(saved handle)
-		// 3. calculate stats
+	if ss.N == 0 {
+		return
 	}
-	// res.Metrics["rss"] = ...
-	// res.Metrics["cputime"] = ...
+	if ss.Cmd != nil {
+		defer syscall.CloseHandle(ss.Handle)
+	}
+	var Mem PROCESS_MEMORY_COUNTERS
+	if err := getProcessMemoryInfo(ss.Handle, &Mem); err != nil {
+		log.Printf("GetProcessMemoryInfo failed: %v", err)
+		return
+	}
+	var CPU syscall.Rusage
+	if err := syscall.GetProcessTimes(ss.Handle, &CPU.CreationTime, &CPU.ExitTime, &CPU.KernelTime, &CPU.UserTime); err != nil {
+		log.Printf("GetProcessTimes failed: %v", err)
+		return
+	}
+	res.Metrics[prefix+"cputime"] = (getCPUTime(CPU) - getCPUTime(ss.CPU)) / ss.N
+	res.Metrics[prefix+"rss"] = uint64(Mem.PeakWorkingSetSize)
 }
 
-/* FTR
-
-type syscall.Rusage struct {
-        CreationTime Filetime
-        ExitTime     Filetime
-        KernelTime   Filetime
-        UserTime     Filetime
+func getCPUTime(CPU syscall.Rusage) uint64 {
+	return uint64(CPU.KernelTime.Nanoseconds() + CPU.UserTime.Nanoseconds())
 }
-
-func ftToDuration(ft *syscall.Filetime) time.Duration {
-        n := int64(ft.HighDateTime)<<32 + int64(ft.LowDateTime) // in 100-nanosecond intervals
-        return time.Duration(n*100) * time.Nanosecond
-}
-*/
