@@ -4,6 +4,9 @@
 
 package driver
 
+// TODO(dvyukov): GetProcessMemoryInfo/GetProcessTimes return info only
+// for the process, but not for child processes, so build benchmark numbers are incorrect.
+
 import (
 	"log"
 	"os/exec"
@@ -13,8 +16,10 @@ import (
 
 // access to Windows APIs
 var (
-	modkernel32              = syscall.NewLazyDLL("psapi.dll")
-	procGetProcessMemoryInfo = modkernel32.NewProc("GetProcessMemoryInfo")
+	modkernel32                = syscall.NewLazyDLL("kernel32.dll")
+	modpsapi                   = syscall.NewLazyDLL("psapi.dll")
+	procGetProcessMemoryInfo   = modpsapi.NewProc("GetProcessMemoryInfo")
+	procSetProcessAffinityMask = modkernel32.NewProc("SetProcessAffinityMask")
 )
 
 type PROCESS_MEMORY_COUNTERS struct {
@@ -32,6 +37,18 @@ type PROCESS_MEMORY_COUNTERS struct {
 
 func getProcessMemoryInfo(h syscall.Handle, mem *PROCESS_MEMORY_COUNTERS) (err error) {
 	r1, _, e1 := syscall.Syscall(procGetProcessMemoryInfo.Addr(), 3, uintptr(h), uintptr(unsafe.Pointer(mem)), uintptr(unsafe.Sizeof(*mem)))
+	if r1 == 0 {
+		if e1 != 0 {
+			err = error(e1)
+		} else {
+			err = syscall.EINVAL
+		}
+	}
+	return
+}
+
+func setProcessAffinityMask(h syscall.Handle, mask int) (err error) {
+	r1, _, e1 := syscall.Syscall(procSetProcessAffinityMask.Addr(), 2, uintptr(h), uintptr(mask), 0)
 	if r1 == 0 {
 		if e1 != 0 {
 			err = error(e1)
@@ -63,10 +80,6 @@ func InitSysStats(N uint64, cmd *exec.Cmd) (ss sysStats) {
 		h, err := syscall.GetCurrentProcess()
 		if err != nil {
 			log.Printf("GetCurrentProcess failed: %v", err)
-			return
-		}
-		if err := getProcessMemoryInfo(h, &ss.Mem); err != nil {
-			log.Printf("GetProcessMemoryInfo failed: %v", err)
 			return
 		}
 		if err := syscall.GetProcessTimes(h, &ss.CPU.CreationTime, &ss.CPU.ExitTime, &ss.CPU.KernelTime, &ss.CPU.UserTime); err != nil {
@@ -110,4 +123,16 @@ func (ss sysStats) Collect(res *Result, prefix string) {
 
 func getCPUTime(CPU syscall.Rusage) uint64 {
 	return uint64(CPU.KernelTime.Nanoseconds() + CPU.UserTime.Nanoseconds())
+}
+
+func setProcessAffinity(v int) {
+	h, err := syscall.GetCurrentProcess()
+	if err != nil {
+		log.Printf("GetCurrentProcess failed: %v", err)
+		return
+	}
+	if err := setProcessAffinityMask(h, v); err != nil {
+		log.Printf("SetProcessAffinityMask failed: %v", err)
+		return
+	}
 }
