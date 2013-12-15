@@ -14,7 +14,6 @@
 package driver
 
 import (
-	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
@@ -22,11 +21,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"runtime/pprof"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,9 +33,10 @@ import (
 var (
 	bench     = flag.String("bench", "", "benchmark to run")
 	flake     = flag.Int("flake", 0, "test flakiness of a benchmark")
-	benchNum  = flag.Int("benchnum", 5, "run each benchmark that many times")
+	benchNum  = flag.Int("benchnum", 5, "number of benchmark runs")
 	benchMem  = flag.Int("benchmem", 64, "approx RSS value to aim at in benchmarks, in MB")
-	benchTime = flag.Duration("benchtime", 5*time.Second, "benchmarking time for a single run")
+	benchTime = flag.Duration("benchtime", 5*time.Second, "run enough iterations of each benchmark to take the specified time")
+	affinity  = flag.Int("affinity", 0, "process affinity")
 	tmpDir    = flag.String("tmpdir", os.TempDir(), "dir for temporary files")
 
 	BenchNum  int
@@ -54,9 +52,14 @@ func Register(name string, f func() Result) {
 
 func Main() {
 	flag.Parse()
+	// Copy to public variables, so that benchmarks can access the values.
 	BenchNum = *benchNum
 	BenchMem = *benchMem
 	BenchTime = *benchTime
+
+	if *affinity != 0 {
+		setProcessAffinity(*affinity)
+	}
 
 	if *bench == "" {
 		printBenchmarks()
@@ -69,7 +72,7 @@ func Main() {
 	}
 
 	if *flake > 0 {
-		testFlakiness(*flake)
+		testFlakiness(f, *flake)
 		return
 	}
 
@@ -97,6 +100,24 @@ func printBenchmarks() {
 	fmt.Print("\n")
 }
 
+// testFlakiness runs the function N+2 times and prints metrics diffs between
+// the second and subsequent runs.
+func testFlakiness(f func() Result, N int) {
+	res := make([]Result, N+2)
+	for i := range res {
+		res[i] = f()
+	}
+	fmt.Printf("\n")
+	for k, v := range res[0].Metrics {
+		fmt.Printf("%v:\t", k)
+		for i := 2; i < len(res); i++ {
+			d := 100*float64(v)/float64(res[i].Metrics[k]) - 100
+			fmt.Printf(" %+.2f%%", d)
+		}
+		fmt.Printf("\n")
+	}
+}
+
 // Result contains all the interesting data about benchmark execution.
 type Result struct {
 	N        uint64        // number of iterations
@@ -113,12 +134,21 @@ func MakeResult() Result {
 // Benchmark runs f several times, collects stats, chooses the best run
 // and creates cpu/mem profiles.
 func Benchmark(f func(uint64)) Result {
-	var results []Result
+	res := MakeResult()
 	for i := 0; i < *benchNum; i++ {
-		res := runBenchmark(f)
-		results = append(results, res)
+		res1 := runBenchmark(f)
+		if res.N == 0 || res.RunTime > res1.RunTime {
+			res = res1
+		}
+		// Always take RSS and sys memory metrics from last iteration.
+		// They only grow, and seem to converge to some eigen value.
+		// Variations are smaller if we do this.
+		for k, v := range res1.Metrics {
+			if k == "rss" || strings.HasPrefix(k, "sys-") {
+				res.Metrics[k] = v
+			}
+		}
 	}
-	res := aggregateResults(results)
 
 	cpuprof := processProfile(os.Args[0], res.Files["cpuprof"])
 	delete(res.Files, "cpuprof")
@@ -133,54 +163,6 @@ func Benchmark(f func(uint64)) Result {
 		res.Files["memprof"] = memprof
 	}
 
-	return res
-}
-
-func aggregateResults(results []Result) Result {
-	res := MakeResult()
-	switch "mean-min" {
-	case "best":
-		for _, res1 := range results {
-			if res.N == 0 || res.RunTime > res1.RunTime {
-				res = res1
-			}
-			// Always take RSS and sys memory metrics from last iteration.
-			// They only grow, and seem to converge to some eigen value.
-			// Variations are smaller if we do this.
-			for k, v := range res1.Metrics {
-				if k == "rss" || strings.HasPrefix(k, "sys-") {
-					res.Metrics[k] = v
-				}
-			}
-		}
-	case "mean-min":
-		nthrow := len(results) / 2
-		for i := 0; i < nthrow; i++ {
-			max := uint64(0)
-			idx := -1
-			for i, res1 := range results {
-				if max < res1.RunTime {
-					max = res1.RunTime
-					idx = i
-				}
-			}
-			results[idx] = results[len(results)-1]
-			results = results[:len(results)-1]
-		}
-		fallthrough
-	case "mean":
-		for _, res1 := range results {
-			for k, v := range res1.Metrics {
-				res.Metrics[k] = res.Metrics[k] + v
-			}
-			res.Files = res1.Files
-		}
-		for k, v := range res.Metrics {
-			res.Metrics[k] = v / uint64(len(results))
-		}
-	default:
-		panic("unknown aggregation")
-	}
 	return res
 }
 
@@ -292,55 +274,6 @@ func Parallel(N uint64, P int, f func()) {
 		}()
 	}
 	wg.Wait()
-}
-
-// testFlakiness runs the function N+2 times and prints metrics diffs between
-// the second and subsequent runs.
-func testFlakiness(N int) {
-	res := make([]Result, N+1)
-	for i := range res {
-		fmt.Printf("Run %v/%v\n", i, N)
-		res[i] = runSelf()
-	}
-	fmt.Printf("\n")
-	for k, v := range res[0].Metrics {
-		fmt.Printf("%20s:\t", k)
-		for i := 1; i < len(res); i++ {
-			d := 100*float64(res[i].Metrics[k])/float64(v) - 100
-			fmt.Printf(" %+.2f%%", d)
-		}
-		fmt.Printf("\n")
-	}
-}
-
-// parseBenchmarkOutput fetches metrics and artifacts from benchmark output.
-func runSelf() Result {
-	args := os.Args[1:]
-	for i := range args {
-		if strings.HasPrefix(args[i], "-flake") {
-			args[i] = args[len(args)-1]
-			args = args[:len(args)-1]
-			break
-		}
-	}
-	out, err := exec.Command(os.Args[0], args...).CombinedOutput()
-	if err != nil {
-		log.Fatalf("Failed to execute self: %v", err)
-	}
-	s := bufio.NewScanner(bytes.NewReader(out))
-	re := regexp.MustCompile("^GOPERF-METRIC:([a-z,-]+)=([0-9]+)$")
-	res := MakeResult()
-	for s.Scan() {
-		if ss := re.FindStringSubmatch(s.Text()); ss != nil {
-			var v uint64
-			v, err = strconv.ParseUint(ss[2], 10, 64)
-			if err != nil {
-				log.Fatalf("Failed to parse metric '%v=%v': %v", ss[1], ss[2], err)
-			}
-			res.Metrics[ss[1]] = v
-		}
-	}
-	return res
 }
 
 // perfLatency collects and reports information about latencies.

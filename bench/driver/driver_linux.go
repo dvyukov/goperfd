@@ -104,13 +104,47 @@ func getVMPeak() uint64 {
 	re := regexp.MustCompile("VmPeak:[ \t]*([0-9]+) kB")
 	match := re.FindSubmatch(data)
 	if match == nil {
-		log.Printf("No VmPeak in /proc/pid/status")
+		log.Printf("No VmPeak in /proc/self/status")
 		return 0
 	}
 	v, err := strconv.ParseUint(string(match[1]), 10, 64)
 	if err != nil {
-		log.Printf("Failed to parse VmPeak in /proc/pid/status: %v", string(match[1]))
+		log.Printf("Failed to parse VmPeak in /proc/self/status: %v", string(match[1]))
 		return 0
 	}
 	return v * 1024
+}
+
+func setProcessAffinity(v int) {
+	nr := uintptr(0)
+	switch runtime.GOARCH {
+	case "amd64":
+		nr = 203
+	case "386":
+		nr = 241
+	default:
+		log.Printf("setProcessAffinity: unsupported arch")
+		return
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	_, _, errno := syscall.Syscall(nr, uintptr(syscall.Getpid()), uintptr(unsafe.Sizeof(v)), uintptr(unsafe.Pointer(&v)))
+	if errno != 0 {
+		log.Printf("failed to set affinity to %v: %v", v, errno.Error())
+		return
+	}
+	var args []string
+	for i := 0; i < len(os.Args); i++ {
+		a := os.Args[i]
+		if strings.HasPrefix(a, "-affinity") {
+			if a == "-affinity" {
+				i++ // also skip the value
+			}
+			continue
+		}
+		args = append(args, a)
+	}
+	if err := syscall.Exec(os.Args[0], args, os.Environ()); err != nil {
+		log.Printf("failed to exec: %v", err)
+	}
 }
