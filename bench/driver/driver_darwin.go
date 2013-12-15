@@ -43,3 +43,6 @@ func RunSize(file string) string {
 func getVMPeak() uint64 {
 	return 0
 }
+
+func setProcessAffinity(v int) {
+}
