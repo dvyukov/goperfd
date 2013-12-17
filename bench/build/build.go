@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 	"runtime"
 
@@ -21,6 +20,10 @@ func init() {
 }
 
 func benchmark() driver.Result {
+	os.Mkdir("buildtmp", 0750)
+	if err := os.Chdir("buildtmp"); err != nil {
+		log.Fatalf("failed to chdir buildtmp: %v", err)
+	}
 	if os.Getenv("GOMAXPROCS") == "" {
 		os.Setenv("GOMAXPROCS", "1")
 	}
@@ -49,11 +52,11 @@ func benchmarkOnce() driver.Result {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
-		log.Fatalf("Failed to start 'go install -a cmd/go': %v", err)
+		log.Fatalf("Failed to start 'go build -a cmd/go': %v", err)
 	}
 	ss := driver.InitSysStats(1, cmd)
 	if err := cmd.Wait(); err != nil {
-		log.Fatalf("Failed to run 'go install -a cmd/go': %v\n%v", err, stderr.String())
+		log.Fatalf("Failed to run 'go build -a cmd/go': %v\n%v", err, stderr.String())
 	}
 	res := driver.MakeResult()
 	res.RunTime = uint64(time.Since(t0))
@@ -61,7 +64,7 @@ func benchmarkOnce() driver.Result {
 	ss.Collect(&res, "build-")
 
 	// go command binary size
-	gobin := filepath.Join(os.Getenv("GOROOT"), "bin", "go")
+	gobin := "go"
 	if runtime.GOOS == "windows" {
 		gobin += ".exe"
 	}
