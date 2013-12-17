@@ -32,7 +32,7 @@ func benchmark() driver.Result {
 		}
 		log.Printf("Run %v: %+v\n", i, res)
 	}
-	perf1, perf2 := driver.RunUnderProfiler("go", "install", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
+	perf1, perf2 := driver.RunUnderProfiler("go", "build", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
 	if perf1 != "" {
 		res.Files["processes"] = perf1
 	}
@@ -45,7 +45,7 @@ func benchmark() driver.Result {
 func benchmarkOnce() driver.Result {
 	// run 'go build -a'
 	t0 := time.Now()
-	cmd := exec.Command("go", "install", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
+	cmd := exec.Command("go", "build", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
