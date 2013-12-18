@@ -35,6 +35,11 @@ func benchmark() driver.Result {
 		}
 		log.Printf("Run %v: %+v\n", i, res)
 	}
+	gobin := "go"
+	if runtime.GOOS == "windows" {
+		gobin += ".exe"
+	}
+	os.Remove(gobin)
 	perf1, perf2 := driver.RunUnderProfiler("go", "build", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
 	if perf1 != "" {
 		res.Files["processes"] = perf1
@@ -46,7 +51,13 @@ func benchmark() driver.Result {
 }
 
 func benchmarkOnce() driver.Result {
+	gobin := "go"
+	if runtime.GOOS == "windows" {
+		gobin += ".exe"
+	}
+
 	// run 'go build -a'
+	os.Remove(gobin)
 	t0 := time.Now()
 	cmd := exec.Command("go", "build", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
 	var stderr bytes.Buffer
@@ -64,10 +75,6 @@ func benchmarkOnce() driver.Result {
 	ss.Collect(&res, "build-")
 
 	// go command binary size
-	gobin := "go"
-	if runtime.GOOS == "windows" {
-		gobin += ".exe"
-	}
 	gof, err := os.Open(gobin)
 	if err != nil {
 		log.Fatalf("Failed to open $GOROOT/bin/go: %v\n", err)
