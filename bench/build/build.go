@@ -51,11 +51,7 @@ func benchmark() driver.Result {
 }
 
 func benchmarkOnce() driver.Result {
-	gobin := "gobuild"
-	if runtime.GOOS == "windows" {
-		gobin += ".exe"
-	}
-
+	//gobin := "gobuild"
 	// run 'go build -a'
 	//os.Remove(gobin)
 	t0 := time.Now()
@@ -76,7 +72,7 @@ func benchmarkOnce() driver.Result {
 	ss.Collect(&res, "build-")
 
 	// go command binary size
-	gof, err := os.Open(gobin)
+	gof, err := os.Open("gobuild")
 	if err != nil {
 		log.Fatalf("Failed to open $GOROOT/bin/go: %v\n", err)
 	}
@@ -86,7 +82,7 @@ func benchmarkOnce() driver.Result {
 	}
 	res.Metrics["binary-size"] = uint64(st.Size())
 
-	sizef := driver.RunSize(gobin)
+	sizef := driver.RunSize("gobuild")
 	if sizef != "" {
 		res.Files["sections"] = sizef
 	}
