@@ -9,8 +9,8 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"time"
 	"runtime"
+	"time"
 
 	"code.google.com/p/goperfd/bench/driver"
 )
@@ -20,10 +20,10 @@ func init() {
 }
 
 func benchmark() driver.Result {
-	os.Mkdir("buildtmp", 0750)
-	if err := os.Chdir("buildtmp"); err != nil {
-		log.Fatalf("failed to chdir buildtmp: %v", err)
-	}
+	//os.Mkdir("buildtmp", 0750)
+	//if err := os.Chdir("buildtmp"); err != nil {
+	//	log.Fatalf("failed to chdir buildtmp: %v", err)
+	//}
 	if os.Getenv("GOMAXPROCS") == "" {
 		os.Setenv("GOMAXPROCS", "1")
 	}
@@ -39,8 +39,8 @@ func benchmark() driver.Result {
 	if runtime.GOOS == "windows" {
 		gobin += ".exe"
 	}
-	os.Remove(gobin)
-	perf1, perf2 := driver.RunUnderProfiler("go", "build", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
+	//os.Remove(gobin)
+	perf1, perf2 := driver.RunUnderProfiler("go", "build", "-o", "goperf", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
 	if perf1 != "" {
 		res.Files["processes"] = perf1
 	}
@@ -51,23 +51,24 @@ func benchmark() driver.Result {
 }
 
 func benchmarkOnce() driver.Result {
-	gobin := "go"
+	gobin := "gobuild"
 	if runtime.GOOS == "windows" {
 		gobin += ".exe"
 	}
 
 	// run 'go build -a'
-	os.Remove(gobin)
+	//os.Remove(gobin)
 	t0 := time.Now()
-	cmd := exec.Command("go", "build", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	cmd := exec.Command("go", "build", "-o", "gobuild", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
 	if err := cmd.Start(); err != nil {
 		log.Fatalf("Failed to start 'go build -a cmd/go': %v", err)
 	}
 	ss := driver.InitSysStats(1, cmd)
 	if err := cmd.Wait(); err != nil {
-		log.Fatalf("Failed to run 'go build -a cmd/go': %v\n%v", err, stderr.String())
+		log.Fatalf("Failed to run 'go build -a cmd/go': %v\n%v", err, out.String())
 	}
 	res := driver.MakeResult()
 	res.RunTime = uint64(time.Since(t0))
