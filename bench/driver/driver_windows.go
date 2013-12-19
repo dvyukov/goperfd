@@ -4,9 +4,6 @@
 
 package driver
 
-// TODO(dvyukov): GetProcessMemoryInfo/GetProcessTimes return info only
-// for the process, but not for child processes, so build benchmark numbers are incorrect.
-
 import (
 	"log"
 	"os/exec"
@@ -47,8 +44,8 @@ func getProcessMemoryInfo(h syscall.Handle, mem *PROCESS_MEMORY_COUNTERS) (err e
 	return
 }
 
-func setProcessAffinityMask(h syscall.Handle, mask int) (err error) {
-	r1, _, e1 := syscall.Syscall(procSetProcessAffinityMask.Addr(), 2, uintptr(h), uintptr(mask), 0)
+func setProcessAffinityMask(h syscall.Handle, mask uintptr) (err error) {
+	r1, _, e1 := syscall.Syscall(procSetProcessAffinityMask.Addr(), 2, uintptr(h), mask, 0)
 	if r1 == 0 {
 		if e1 != 0 {
 			err = error(e1)
@@ -63,7 +60,8 @@ func RunUnderProfiler(args ...string) (string, string) {
 	return "", ""
 }
 
-func RunSize(file string) string {
+// Size runs size command on the file. Returns filename with output. Any errors are ignored.
+func Size(file string) string {
 	return ""
 }
 
@@ -106,6 +104,10 @@ func (ss sysStats) Collect(res *Result, prefix string) {
 	}
 	if ss.Cmd != nil {
 		defer syscall.CloseHandle(ss.Handle)
+		// TODO(dvyukov): GetProcessMemoryInfo/GetProcessTimes return info only for the process,
+		// but not for child processes, so build benchmark numbers are incorrect.
+		// It's better to report nothing than to report wrong numbers.
+		return
 	}
 	var Mem PROCESS_MEMORY_COUNTERS
 	if err := getProcessMemoryInfo(ss.Handle, &Mem); err != nil {
@@ -131,7 +133,7 @@ func setProcessAffinity(v int) {
 		log.Printf("GetCurrentProcess failed: %v", err)
 		return
 	}
-	if err := setProcessAffinityMask(h, v); err != nil {
+	if err := setProcessAffinityMask(h, uintptr(v)); err != nil {
 		log.Printf("SetProcessAffinityMask failed: %v", err)
 		return
 	}
