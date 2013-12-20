@@ -82,7 +82,7 @@ func benchmarkOnce() driver.Result {
 	}
 	res.Metrics["binary-size"] = uint64(st.Size())
 
-	sizef := driver.RunSize("gobuild")
+	sizef := driver.Size("gobuild")
 	if sizef != "" {
 		res.Files["sections"] = sizef
 	}

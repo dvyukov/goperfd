@@ -9,6 +9,7 @@ package driver
 import (
 	"bufio"
 	"bytes"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -59,26 +60,28 @@ func perfReport(args ...string) string {
 	defer ff.Flush()
 
 	// Strip lines starting with #, and limit output to 100 lines.
-	s := bufio.NewScanner(&stdout)
-	for n := 0; s.Scan() && n < 100; {
-		ln := s.Bytes()
+	r := bufio.NewReader(&stdout)
+	for n := 0; n < 100; {
+		ln, err := r.ReadBytes('\n')
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Printf("Failed to scan profile: %v", err)
+			return ""
+		}
 		if len(ln) == 0 || ln[0] == '#' {
 			continue
 		}
 		ff.Write(ln)
-		ff.Write([]byte{'\n'})
 		n++
-	}
-	if s.Err() != nil {
-		log.Printf("Failed to scan profile: %v", s.Err())
-		return ""
 	}
 
 	return f.Name()
 }
 
-// Runs size on the file. Returns filename with output. Any errors are ignored.
-func RunSize(file string) string {
+// Size runs size command on the file. Returns filename with output. Any errors are ignored.
+func Size(file string) string {
 	resf, err := os.Create(tempFilename("size.txt"))
 	if err != nil {
 		log.Printf("Failed to create output file: %v", err)
@@ -120,7 +123,7 @@ func getVMPeak() uint64 {
 }
 
 func setProcessAffinity(v int) {
-	nr := uintptr(0)
+	nr := uintptr(0) // NR_SCHED_SETAFFINITY
 	switch runtime.GOARCH {
 	case "amd64":
 		nr = 203
@@ -137,6 +140,7 @@ func setProcessAffinity(v int) {
 		log.Printf("failed to set affinity to %v: %v", v, errno.Error())
 		return
 	}
+	// Re-exec the process w/o affinity flag.
 	var args []string
 	for i := 0; i < len(os.Args); i++ {
 		a := os.Args[i]
