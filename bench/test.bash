@@ -10,7 +10,7 @@ if [ -z "$GOROOT" ]; then
 	exit 1
 fi
 
-if [ ! -e "./driver.go" ]; then
+if [ ! -e "./bench.go" ]; then
 	echo run from benchmark dir
 	exit 1
 fi
@@ -22,13 +22,13 @@ checkrev() {
 	echo checking $1_$2 @$3...
 	export GOOS=$1
 	export GOARCH=$2
-	rm -f $GOROOT/src/pkg/runtime/z*.c
+	rm -f $GOROOT/src/pkg/runtime/z*.{c,s}
 	(cd $GOROOT && hg update -r $3)
 	(cd $GOROOT/src && ./make.bash)
 	go build
 	if [ "$GOOS" == "`go env GOHOSTOS`" -a "$GOARCH" == "`go env GOHOSTARCH`" ]; then
 		./bench
-		for BENCH in json http rpc; do
+		for BENCH in json; do
 			./bench -bench=$BENCH -benchtime=1ms -benchnum=1
 		done
 	fi
@@ -42,9 +42,8 @@ check() {
 	checkrev $1 $2 tip
 }
 
-check linux amd64
-check darwin amd64
 check windows amd64
+check linux amd64
 
 (cd $GOROOT && hg update)
 (cd $GOROOT/src && ./make.bash)

@@ -7,11 +7,9 @@ package main
 import (
 	"code.google.com/p/goperfd/bench/driver"
 
-	_ "code.google.com/p/goperfd/bench/json"
-	//_ "dvyukov-go-perf-dashboard/bench/rpc"
 	_ "code.google.com/p/goperfd/bench/build"
-	//_ "dvyukov-go-perf-dashboard/bench/http"
-	//_ "dvyukov-go-perf-dashboard/bench/widefinder"
+	_ "code.google.com/p/goperfd/bench/json"
+	_ "code.google.com/p/goperfd/bench/http"
 )
 
 func main() {

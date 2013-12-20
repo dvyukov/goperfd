@@ -60,8 +60,8 @@ func RunUnderProfiler(args ...string) (string, string) {
 	return "", ""
 }
 
-// RunSize runs size command on the file. Returns filename with output. Any errors are ignored.
-func RunSize(file string) string {
+// Size runs size command on the file. Returns filename with output. Any errors are ignored.
+func Size(file string) string {
 	return ""
 }
 
