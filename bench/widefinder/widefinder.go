@@ -63,8 +63,7 @@ func benchmarkN(N uint64) {
 
 	// Read the file and stream individual lines to linec.
 	linec := make(chan string, chancap)
-	filename := filepath.Join("gopath", "src", "code.google.com", "p", "goperfd", "bench", "widefinder", "widefinder.log")
-	go readAndFeed(N, filename, linec)
+	go readAndFeed(N, linec)
 
 	// Read lines from linec, parse and stream LogEntry's to entryc.
 	entryc := make(chan *LogEntry, chancap)
@@ -131,8 +130,13 @@ func benchmarkN(N uint64) {
 	reportResults(stats[LogReferers], "referers", false)
 }
 
-func readAndFeed(N uint64, filename string, linec chan string) {
+func readAndFeed(N uint64, linec chan string) {
+	filename := filepath.Join("widefinder", "widefinder.log")
 	f, err := os.Open(filename)
+	if err == os.ErrNotExist {
+		filename = filepath.Join(driver.WorkDir, "gopath", "src", "code.google.com", "p", "goperfd", "bench", filename)
+		f, err = os.Open(filename)
+	}
 	if err != nil {
 		log.Fatalf("failed to open %v: %v", filename, err)
 	}
@@ -169,7 +173,7 @@ func parseLogLine(line string) *LogEntry {
 			return nil
 		}
 	}
-	referer := ss[10][1:len(ss[10])-1]
+	referer := ss[10][1 : len(ss[10])-1]
 	return &LogEntry{status, bytes, ss[6], ss[0], referer}
 
 }
