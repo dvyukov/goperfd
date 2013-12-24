@@ -63,7 +63,7 @@ func benchmarkN(N uint64) {
 
 	// Read the file and stream individual lines to linec.
 	linec := make(chan string, chancap)
-	filename := filepath.Join(os.Getenv("GOPATH"), "src", "code.google.com", "p", "goperfd", "bench", "widefinder", "widefinder.log")
+	filename := filepath.Join("gopath", "src", "code.google.com", "p", "goperfd", "bench", "widefinder", "widefinder.log")
 	go readAndFeed(N, filename, linec)
 
 	// Read lines from linec, parse and stream LogEntry's to entryc.
