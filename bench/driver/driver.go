@@ -42,6 +42,7 @@ var (
 	BenchNum  int
 	BenchMem  int
 	BenchTime time.Duration
+	WorkDir   string
 
 	benchmarks = make(map[string]func() Result)
 )
@@ -56,6 +57,7 @@ func Main() {
 	BenchNum = *benchNum
 	BenchMem = *benchMem
 	BenchTime = *benchTime
+	WorkDir = *tmpDir
 
 	if *affinity != 0 {
 		setProcessAffinity(*affinity)
