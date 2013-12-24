@@ -10,6 +10,7 @@ import (
 	_ "code.google.com/p/goperfd/bench/build"
 	_ "code.google.com/p/goperfd/bench/json"
 	_ "code.google.com/p/goperfd/bench/http"
+	_ "code.google.com/p/goperfd/bench/widefinder"
 )
 
 func main() {
