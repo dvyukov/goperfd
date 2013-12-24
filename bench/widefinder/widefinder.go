@@ -133,7 +133,7 @@ func benchmarkN(N uint64) {
 func readAndFeed(N uint64, linec chan string) {
 	filename := filepath.Join("widefinder", "widefinder.log")
 	f, err := os.Open(filename)
-	if err == os.ErrNotExist {
+	if os.IsNotExist(err) {
 		filename = filepath.Join(driver.WorkDir, "gopath", "src", "code.google.com", "p", "goperfd", "bench", filename)
 		f, err = os.Open(filename)
 	}
