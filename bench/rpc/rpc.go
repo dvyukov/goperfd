@@ -44,33 +44,42 @@ func benchmarkN(N uint64) {
 	procs := runtime.GOMAXPROCS(0)
 	send := int64(N)
 	var wg sync.WaitGroup
-	wg.Add(procs * clientsPerConn)
+	wg.Add(procs)
 	for p := 0; p < procs; p++ {
 		client, err := rpc.Dial("tcp", rpcServerAddr)
 		if err != nil {
 			log.Fatal("error dialing:", err)
 		}
+		var clientwg sync.WaitGroup
+		clientwg.Add(clientsPerConn)
+		go func() {
+			clientwg.Wait()
+			client.Close()
+			wg.Done()
+		}()
 		for c := 0; c < clientsPerConn; c++ {
 			resc := make(chan *rpc.Call, maxInflight+1)
 			gate := make(chan struct{}, maxInflight)
 			go func() {
 				for atomic.AddInt64(&send, -1) >= 0 {
 					gate <- struct{}{}
-					req := &FindReq{N: 5}
+					req := &FindReq{"foo", 3}
 					res := &FindRes{Start: time.Now()}
 					client.Go("Server.Find", req, res, resc)
 				}
 				close(gate)
 			}()
 			go func() {
-				defer wg.Done()
-				defer client.Close()
+				defer clientwg.Done()
 				for _ = range gate {
 					call := <-resc
+					if call.Error != nil {
+						log.Fatalf("rpc failed: %v", call.Error)
+					}
 					res := call.Reply.(*FindRes)
-					//if len(res.Matches) != 5 {
-					//	log.Fatalf("incorrect reply: %v", res)
-					//}
+					if len(res.Matches) != 3 {
+						log.Fatalf("incorrect reply: %v", res)
+					}
 					driver.LatencyNote(res.Start)
 				}
 			}()
@@ -82,11 +91,12 @@ func benchmarkN(N uint64) {
 type Server struct{}
 
 func (s *Server) Find(req *FindReq, res *FindRes) error {
-	res.Matches = []string{"aaa", "bbb", "ccc", "ddd", "eee"}
+	res.Matches = []string{"aaa", "bbb", "ccc"}
 	return nil
 }
 
 type FindReq struct {
+	Query string
 	N int
 }
 
