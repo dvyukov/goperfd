@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -143,12 +144,16 @@ func readAndFeed(N uint64, linec chan string) {
 	defer f.Close()
 	for N > 0 {
 		f.Seek(0, 0)
-		s := bufio.NewScanner(f)
-		for ; N > 0 && s.Scan(); N-- {
-			linec <- s.Text()
-		}
-		if s.Err() != nil {
-			log.Fatalf("scanner failed: %v", s.Err())
+		r := bufio.NewReader(f)
+		for ; N > 0; N-- {
+			ln, err := r.ReadString('\n')
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				log.Fatalf("scanner failed: %v", err)
+			}
+			linec <- ln
 		}
 	}
 	close(linec)
