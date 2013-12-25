@@ -97,7 +97,7 @@ func (s *Server) Find(req *FindReq, res *FindRes) error {
 
 type FindReq struct {
 	Query string
-	N int
+	N     int
 }
 
 type FindRes struct {
