@@ -36,7 +36,7 @@ var (
 	benchNum  = flag.Int("benchnum", 5, "number of benchmark runs")
 	benchMem  = flag.Int("benchmem", 64, "approx RSS value to aim at in benchmarks, in MB")
 	benchTime = flag.Duration("benchtime", 5*time.Second, "run enough iterations of each benchmark to take the specified time")
-	affinity  = flag.Int("affinity", 0, "process affinity")
+	affinity  = flag.Int("affinity", 0, "process affinity (passed to an OS-specific function like sched_setaffinity/SetProcessAffinityMask)")
 	tmpDir    = flag.String("tmpdir", os.TempDir(), "dir for temporary files")
 
 	BenchNum  int
@@ -73,6 +73,8 @@ func Main() {
 		os.Exit(1)
 	}
 
+	setupWatchdog()
+
 	if *flake > 0 {
 		testFlakiness(f, *flake)
 		return
@@ -100,6 +102,22 @@ func printBenchmarks() {
 		fmt.Print(name)
 	}
 	fmt.Print("\n")
+}
+
+func setupWatchdog() {
+	t := *benchTime
+	// Be somewhat conservative, and build benchmark does not care about benchTime.
+	if t < time.Minute {
+		t = time.Minute
+	}
+	t *= time.Duration(*benchNum)
+	if *flake > 0 {
+		t *= time.Duration(*flake + 2)
+	}
+	go func() {
+		time.Sleep(t)
+		panic(fmt.Sprintf("timed out after %v", t))
+	}()
 }
 
 // testFlakiness runs the function N+2 times and prints metrics diffs between
@@ -298,12 +316,11 @@ func latencyInit(N uint64) {
 
 func LatencyNote(t time.Time) {
 	d := time.Since(t)
-	l := len(latency.data)
-	if int(atomic.LoadInt32(&latency.idx)) >= l {
+	if int(atomic.LoadInt32(&latency.idx)) >= len(latency.data) {
 		return
 	}
 	i := atomic.AddInt32(&latency.idx, 1) - 1
-	if int(i) >= l {
+	if int(i) >= len(latency.data) {
 		return
 	}
 	latency.data[i] = uint64(d)
