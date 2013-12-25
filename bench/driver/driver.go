@@ -298,17 +298,24 @@ func latencyInit(N uint64) {
 
 func LatencyNote(t time.Time) {
 	d := time.Since(t)
+	l := len(latency.data)
+	if int(atomic.LoadInt32(&latency.idx)) >= l {
+		return
+	}
 	i := atomic.AddInt32(&latency.idx, 1) - 1
-	if int(i) >= len(latency.data) {
+	if int(i) >= l {
 		return
 	}
 	latency.data[i] = uint64(d)
 }
 
 func latencyCollect(res *Result) {
-	cnt := latency.idx
+	cnt := int(latency.idx)
 	if cnt == 0 {
 		return
+	}
+	if cnt > len(latency.data) {
+		cnt = len(latency.data)
 	}
 	sort.Sort(latency.data[:cnt])
 	res.Metrics["latency-50"] = latency.data[cnt*50/100]
