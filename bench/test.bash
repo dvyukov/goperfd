@@ -28,7 +28,7 @@ checkrev() {
 	go build
 	if [ "$GOOS" == "`go env GOHOSTOS`" -a "$GOARCH" == "`go env GOHOSTARCH`" ]; then
 		./bench
-		for BENCH in json; do
+		for BENCH in json http rpc widefinder garbage; do
 			./bench -bench=$BENCH -benchtime=1ms -benchnum=1
 		done
 	fi
