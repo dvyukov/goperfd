@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -62,7 +63,14 @@ func benchCmp(bench, procs, aff string) {
 	fmt.Printf("%v-%v\n", bench, procs)
 	m0 := benchOne(*oldBin, bench, procs, aff)
 	m1 := benchOne(*newBin, bench, procs, aff)
-	for metric, v0 := range m0 {
+
+	var metrics []string
+	for metric := range m0 {
+		metrics = append(metrics, metric)
+	}
+	sort.Strings(metrics)
+	for _, metric := range metrics {
+		v0 := m0[metric]
 		v1 := m1[metric]
 		d := float64(v1)/float64(v0)*100 - 100
 		fmt.Printf("%-20s %12v %12v %10v%%\n", metric, v0, v1, fmt.Sprintf("%+.2f", d))
