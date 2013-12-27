@@ -5,12 +5,10 @@
 package build
 
 import (
-	"bytes"
 	"log"
 	"os"
 	"os/exec"
 	"runtime"
-	"time"
 
 	"code.google.com/p/goperfd/bench/driver"
 )
@@ -54,22 +52,12 @@ func benchmarkOnce() driver.Result {
 	//gobin := "gobuild"
 	// run 'go build -a'
 	//os.Remove(gobin)
-	t0 := time.Now()
-	cmd := exec.Command("go", "build", "-o", "gobuild", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	if err := cmd.Start(); err != nil {
-		log.Fatalf("Failed to start 'go build -a cmd/go': %v", err)
-	}
-	ss := driver.InitSysStats(1, cmd)
-	if err := cmd.Wait(); err != nil {
-		log.Fatalf("Failed to run 'go build -a cmd/go': %v\n%v", err, out.String())
-	}
 	res := driver.MakeResult()
-	res.RunTime = uint64(time.Since(t0))
-	res.Metrics["build-time"] = res.RunTime
-	ss.Collect(&res, "build-")
+	cmd := exec.Command("go", "build", "-o", "gobuild", "-a", "-p", os.Getenv("GOMAXPROCS"), "cmd/go")
+	out, err := driver.RunAndCollectSysStats(cmd, &res, 1, "build-")
+	if err != nil {
+		log.Fatalf("Failed to run 'go build -a cmd/go': %v\n%v", err, out)
+	}
 
 	// go command binary size
 	gof, err := os.Open("gobuild")

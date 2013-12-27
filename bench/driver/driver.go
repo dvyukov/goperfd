@@ -38,6 +38,7 @@ var (
 	benchTime = flag.Duration("benchtime", 5*time.Second, "run enough iterations of each benchmark to take the specified time")
 	affinity  = flag.Int("affinity", 0, "process affinity (passed to an OS-specific function like sched_setaffinity/SetProcessAffinityMask)")
 	tmpDir    = flag.String("tmpdir", os.TempDir(), "dir for temporary files")
+	genSvg    = flag.Bool("svg", false, "generate svg profiles")
 
 	BenchNum  int
 	BenchMem  int
@@ -189,14 +190,20 @@ func Benchmark(f func(uint64)) Result {
 // processProfile invokes 'go tool pprof' with the specified args
 // and returns name of the resulting file, or an empty string.
 func processProfile(args ...string) string {
-	proff, err := os.Create(tempFilename("prof.txt"))
+	fname := "prof.txt"
+	typ := "--text"
+	if *genSvg {
+		fname = "prof.svg"
+		typ = "--svg"
+	}
+	proff, err := os.Create(tempFilename(fname))
 	if err != nil {
 		log.Printf("Failed to create profile file: %v", err)
 		return ""
 	}
 	defer proff.Close()
 	var proflog bytes.Buffer
-	cmdargs := append([]string{"tool", "pprof", "--text"}, args...)
+	cmdargs := append([]string{"tool", "pprof", typ}, args...)
 	cmd := exec.Command("go", cmdargs...)
 	cmd.Stdout = proff
 	cmd.Stderr = &proflog
@@ -226,7 +233,7 @@ func runBenchmarkOnce(f func(uint64), N uint64) Result {
 	runtime.GC()
 	mstats0 := new(runtime.MemStats)
 	runtime.ReadMemStats(mstats0)
-	ss := InitSysStats(N, nil)
+	ss := InitSysStats(N)
 	res := MakeResult()
 	res.N = N
 	res.Files["memprof0"] = tempFilename("memprof")
@@ -252,7 +259,7 @@ func runBenchmarkOnce(f func(uint64), N uint64) Result {
 	pprof.StopCPUProfile()
 
 	latencyCollect(&res)
-	ss.Collect(&res, "")
+	ss.Collect(&res)
 
 	res.Files["memprof"] = tempFilename("memprof")
 	memprof, err := os.Create(res.Files["memprof"])

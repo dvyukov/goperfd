@@ -5,10 +5,12 @@
 package driver
 
 import (
+	"bytes"
 	"log"
 	"os/exec"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -23,6 +25,7 @@ var (
 	procAssignProcessToJobObject = modkernel32.NewProc("AssignProcessToJobObject")
 	procSetInformationJobObject  = modkernel32.NewProc("SetInformationJobObject")
 
+	initJobOnce    sync.Once
 	currentProcess syscall.Handle
 	childMu        sync.Mutex
 	childProcesses []syscall.Handle
@@ -52,12 +55,15 @@ type JOBOBJECT_ASSOCIATE_COMPLETION_PORT struct {
 }
 
 func init() {
-	// Create Job object and assign current process to it.
 	var err error
 	currentProcess, err = syscall.GetCurrentProcess()
 	if err != nil {
 		log.Fatalf("GetCurrentProcess failed: %v", err)
 	}
+}
+
+func initJob() {
+	// Create Job object and assign current process to it.
 	jobObject, err := createJobObject(nil, nil)
 	if err != nil {
 		log.Printf("CreateJobObject failed: %v", err)
@@ -187,81 +193,93 @@ func Size(file string) string {
 }
 
 type sysStats struct {
-	N       uint64
-	Current bool
-	CPU     syscall.Rusage
+	N   uint64
+	CPU syscall.Rusage
 }
 
-func InitSysStats(N uint64, cmd *exec.Cmd) (ss sysStats) {
-	if cmd == nil {
-		ss.Current = true
-		if err := syscall.GetProcessTimes(currentProcess, &ss.CPU.CreationTime, &ss.CPU.ExitTime, &ss.CPU.KernelTime, &ss.CPU.UserTime); err != nil {
-			log.Printf("GetProcessTimes failed: %v", err)
-			return
-		}
-	} else {
-		childMu.Lock()
-		children := childProcesses
-		childProcesses = []syscall.Handle{}
-		childMu.Unlock()
-		for _, proc := range children {
-			syscall.CloseHandle(proc)
-		}
+func InitSysStats(N uint64) (ss sysStats) {
+	if err := syscall.GetProcessTimes(currentProcess, &ss.CPU.CreationTime, &ss.CPU.ExitTime, &ss.CPU.KernelTime, &ss.CPU.UserTime); err != nil {
+		log.Printf("GetProcessTimes failed: %v", err)
+		return
 	}
 	ss.N = N
 	return ss
 }
 
-func (ss sysStats) Collect(res *Result, prefix string) {
+func (ss sysStats) Collect(res *Result) {
 	if ss.N == 0 {
 		return
 	}
-	if ss.Current {
+	var Mem PROCESS_MEMORY_COUNTERS
+	if err := getProcessMemoryInfo(currentProcess, &Mem); err != nil {
+		log.Printf("GetProcessMemoryInfo failed: %v", err)
+		return
+	}
+	var CPU syscall.Rusage
+	if err := syscall.GetProcessTimes(currentProcess, &CPU.CreationTime, &CPU.ExitTime, &CPU.KernelTime, &CPU.UserTime); err != nil {
+		log.Printf("GetProcessTimes failed: %v", err)
+		return
+	}
+	res.Metrics["cputime"] = (getCPUTime(CPU) - getCPUTime(ss.CPU)) / ss.N
+	res.Metrics["rss"] = uint64(Mem.PeakWorkingSetSize)
+}
+
+func RunAndCollectSysStats(cmd *exec.Cmd, res *Result, N uint64, prefix string) (string, error) {
+	initJobOnce.Do(initJob)
+
+	childMu.Lock()
+	children := childProcesses
+	childProcesses = []syscall.Handle{}
+	childMu.Unlock()
+	for _, proc := range children {
+		syscall.CloseHandle(proc)
+	}
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	t0 := time.Now()
+	if err := cmd.Run(); err != nil {
+		return out.String(), err
+	}
+	t1 := time.Now()
+
+	res.RunTime = uint64(t1.Sub(t0)) / N
+	res.Metrics[prefix+"time"] = res.RunTime
+
+	childMu.Lock()
+	children = childProcesses
+	childProcesses = []syscall.Handle{}
+	childMu.Unlock()
+	if len(children) == 0 {
+		log.Printf("sysStats.Collect: no child processes?")
+		return out.String(), nil
+	}
+	defer func() {
+		for _, proc := range children {
+			syscall.CloseHandle(proc)
+		}
+	}()
+	cputime := uint64(0)
+	rss := uint64(0)
+	for _, proc := range children {
 		var Mem PROCESS_MEMORY_COUNTERS
-		if err := getProcessMemoryInfo(currentProcess, &Mem); err != nil {
+		if err := getProcessMemoryInfo(proc, &Mem); err != nil {
 			log.Printf("GetProcessMemoryInfo failed: %v", err)
-			return
+			return out.String(), nil
 		}
 		var CPU syscall.Rusage
-		if err := syscall.GetProcessTimes(currentProcess, &CPU.CreationTime, &CPU.ExitTime, &CPU.KernelTime, &CPU.UserTime); err != nil {
+		if err := syscall.GetProcessTimes(proc, &CPU.CreationTime, &CPU.ExitTime, &CPU.KernelTime, &CPU.UserTime); err != nil {
 			log.Printf("GetProcessTimes failed: %v", err)
-			return
+			return out.String(), nil
 		}
-		res.Metrics[prefix+"cputime"] = (getCPUTime(CPU) - getCPUTime(ss.CPU)) / ss.N
-		res.Metrics[prefix+"rss"] = uint64(Mem.PeakWorkingSetSize)
-	} else {
-		childMu.Lock()
-		children := childProcesses
-		childProcesses = []syscall.Handle{}
-		childMu.Unlock()
-		if len(children) == 0 {
-			log.Printf("sysStats.Collect: no child processes?")
-			return
-		}
-		defer func() {
-			for _, proc := range children {
-				syscall.CloseHandle(proc)
-			}
-		}()
-		cputime := uint64(0)
-		rss := uint64(0)
-		for _, proc := range children {
-			var Mem PROCESS_MEMORY_COUNTERS
-			if err := getProcessMemoryInfo(proc, &Mem); err != nil {
-				log.Printf("GetProcessMemoryInfo failed: %v", err)
-				return
-			}
-			var CPU syscall.Rusage
-			if err := syscall.GetProcessTimes(proc, &CPU.CreationTime, &CPU.ExitTime, &CPU.KernelTime, &CPU.UserTime); err != nil {
-				log.Printf("GetProcessTimes failed: %v", err)
-				return
-			}
-			cputime += getCPUTime(CPU) / ss.N
-			rss += uint64(Mem.PeakWorkingSetSize)
-		}
-		res.Metrics[prefix+"cputime"] = cputime
-		res.Metrics[prefix+"rss"] = rss
+		cputime += getCPUTime(CPU) / N
+		rss += uint64(Mem.PeakWorkingSetSize)
 	}
+
+	res.Metrics[prefix+"cputime"] = cputime
+	res.Metrics[prefix+"rss"] = rss
+	return out.String(), nil
 }
 
 func getCPUTime(CPU syscall.Rusage) uint64 {
