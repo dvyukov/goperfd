@@ -55,6 +55,7 @@ func benchmarkN(N uint64) {
 	remain := int64(N)
 	for g := 0; g < G; g++ {
 		go func() {
+			defer wg.Done()
 			for atomic.AddInt64(&remain, -1) >= 0 {
 				gate <- true
 				p := parsePackage()
@@ -64,7 +65,6 @@ func benchmarkN(N uint64) {
 				mu.Unlock()
 				<-gate
 			}
-			wg.Done()
 		}()
 	}
 	wg.Wait()

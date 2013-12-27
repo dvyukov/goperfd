@@ -294,10 +294,10 @@ func Parallel(N uint64, P int, f func()) {
 	wg.Add(numProcs)
 	for p := 0; p < numProcs; p++ {
 		go func() {
+			defer wg.Done()
 			for int64(atomic.AddUint64(&N, ^uint64(0))) >= 0 {
 				f()
 			}
-			wg.Done()
 		}()
 	}
 	wg.Wait()

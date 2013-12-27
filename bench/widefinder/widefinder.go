@@ -72,12 +72,12 @@ func benchmarkN(N uint64) {
 	entrywg.Add(procs)
 	for i := 0; i < procs; i++ {
 		go func() {
+			defer entrywg.Done()
 			for line := range linec {
 				if e := parseLogLine(line); e != nil {
 					entryc <- e
 				}
 			}
-			entrywg.Done()
 		}()
 	}
 	go func() {
