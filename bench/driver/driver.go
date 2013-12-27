@@ -111,7 +111,7 @@ func setupWatchdog() {
 	if t < time.Minute {
 		t = time.Minute
 	}
-	t *= time.Duration(*benchNum)
+	t *= time.Duration(*benchNum) * 2
 	if *flake > 0 {
 		t *= time.Duration(*flake + 2)
 	}
