@@ -82,8 +82,14 @@ func Main() {
 	}
 
 	res := f()
-	for k, v := range res.Metrics {
-		fmt.Printf("GOPERF-METRIC:%v=%v\n", k, v)
+
+	var metrics []string
+	for k := range res.Metrics {
+		metrics = append(metrics, k)
+	}
+	sort.Strings(metrics)
+	for _, m := range metrics {
+		fmt.Printf("GOPERF-METRIC:%v=%v\n", m, res.Metrics[m])
 	}
 	for k, v := range res.Files {
 		fmt.Printf("GOPERF-FILE:%v=%v\n", k, v)
