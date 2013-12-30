@@ -72,6 +72,7 @@ func benchmarkN(N uint64) {
 
 func packageMemConsumption() int {
 	runtime.GC()
+	runtime.GC()
 	ms0 := new(runtime.MemStats)
 	runtime.ReadMemStats(ms0)
 	const N = 10
@@ -79,6 +80,7 @@ func packageMemConsumption() int {
 	for i := range parsed {
 		parsed[i] = parsePackage()
 	}
+	runtime.GC()
 	runtime.GC()
 	// Keep it alive.
 	if parsed[0] == nil {
