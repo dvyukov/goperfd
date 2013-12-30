@@ -228,8 +228,8 @@ func runBenchmark(f func(uint64)) Result {
 	for chooseN(&res) {
 		log.Printf("Benchmarking %v iterations\n", res.N)
 		res = runBenchmarkOnce(f, res.N)
-		log.Printf("Done: %+v\n", res)
 	}
+	log.Printf("Result: %+v\n", res)
 	return res
 }
 
