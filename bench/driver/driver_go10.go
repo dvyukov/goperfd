@@ -13,3 +13,6 @@ import (
 // New mem stats added in Go1.2
 func collectGo12MemStats(res *Result, mstats0, mstats1 *runtime.MemStats) {
 }
+
+func SetGCPercent(x int) {
+}
