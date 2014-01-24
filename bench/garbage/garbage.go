@@ -9,7 +9,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"math/rand"
 	"os"
 	"path"
 	"runtime"
@@ -40,6 +39,7 @@ func benchmark() driver.Result {
 			}
 		}
 		fmt.Printf("consumption=%vKB npkg=%d\n", mem>>10, npkg)
+		driver.SetGCPercent(10000)
 	}
 	return driver.Benchmark(benchmarkN)
 }
@@ -53,15 +53,19 @@ func benchmarkN(N uint64) {
 	var wg sync.WaitGroup
 	wg.Add(G)
 	remain := int64(N)
+	pos := 0
 	for g := 0; g < G; g++ {
 		go func() {
 			defer wg.Done()
 			for atomic.AddInt64(&remain, -1) >= 0 {
 				gate <- true
 				p := parsePackage()
-				i := rand.Intn(len(parsed))
 				mu.Lock()
-				parsed[i] = p
+				parsed[pos%(len(parsed)/2)] = p
+				pos++
+				if (pos%len(parsed)) == 0 {
+					runtime.GC()
+				}
 				mu.Unlock()
 				<-gate
 			}
