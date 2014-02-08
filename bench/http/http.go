@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"runtime"
 	"time"
 
 	"code.google.com/p/goperfd/bench/driver"
@@ -24,9 +25,15 @@ func benchmark() driver.Result {
 }
 
 func benchmarkHttpImpl(N uint64) {
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy:               http.ProxyFromEnvironment,
+			MaxIdleConnsPerHost: 4 * runtime.GOMAXPROCS(0),
+		},
+	}
 	driver.Parallel(N, 4, func() {
 		t0 := time.Now()
-		res, err := http.Get(server.Addr)
+		res, err := client.Get(server.Addr)
 		if err != nil {
 			log.Printf("Get: %v", err)
 			return
