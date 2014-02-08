@@ -31,6 +31,7 @@ func benchmarkHttpImpl(N uint64) {
 			log.Printf("Get: %v", err)
 			return
 		}
+		defer res.Body.Close()
 		all, err := ioutil.ReadAll(res.Body)
 		if err != nil {
 			log.Printf("ReadAll: %v", err)
